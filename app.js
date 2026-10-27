@@ -257,7 +257,10 @@ function onPhase() {
 // ---------- sound, notifications, screen reader, hearts ----------
 
 let audioCtx = null;
+let soundOn = true;
+try { soundOn = localStorage.getItem('studybreak:sound') !== 'off'; } catch {}
 function chime(up) {
+  if (!soundOn) return;
   try {
     audioCtx ||= new AudioContext();
     const notes = up ? [523, 784] : [784, 523];
@@ -727,6 +730,16 @@ function setCompact(onOff) {
 }
 compactBtn.onclick = () => setCompact(!document.body.classList.contains('compact'));
 try { setCompact(!!localStorage.getItem(KEY + ':compact')); } catch {}
+
+const soundBtn = $('#sound');
+function setSound(onOff) {
+  soundOn = onOff;
+  soundBtn.textContent = onOff ? 'Sounds on' : 'Sounds off';
+  soundBtn.setAttribute('aria-pressed', String(onOff));
+  try { localStorage.setItem('studybreak:sound', onOff ? 'on' : 'off'); } catch {}
+}
+soundBtn.onclick = () => { setSound(!soundOn); announce(soundOn ? 'Sounds on.' : 'Sounds off.'); };
+setSound(soundOn);
 
 // ---------- boot ----------
 
