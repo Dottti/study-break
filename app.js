@@ -239,7 +239,7 @@ function onPhase() {
     const qq = QUESTIONS[sh.breakQ];
     chime(true);
     notify('Break time', qq.text);
-    announce(`Break time. Question ${sh.breakQ + 1}${qq.dare ? ', a dare' : ''}: ${qq.text}`);
+    announce(`Break time. Question ${sh.breakQ + 1}${qq.dare ? ', a dare' : qq.spicy ? ', spicy one' : ''}: ${qq.text}`);
     focusHeading = true;
   } else if (sh.phase === 'focus') {
     chime(false);
@@ -556,7 +556,7 @@ function breakView() {
   return `<section>
     <h2>Break: question ${q + 1}</h2>
     ${scoreBar()}${statusLine()}
-    <p class="question${qq.dare ? ' dare' : ''}">${qq.dare ? '<span class="dare-tag">Dare</span><br>' : ''}${esc(qq.text)}</p>
+    <p class="question${qq.dare ? ' dare' : qq.spicy ? ' spicy' : ''}">${qq.dare ? '<span class="dare-tag">Dare</span><br>' : qq.spicy ? '<span class="dare-tag spicy-tag">Spicy 🌶️</span><br>' : ''}${esc(qq.text)}</p>
     ${inner}
     <p class="meta">Break ends in <span id="timer">${fmt(sh.endsAt - Date.now())}</span>.</p>
     <button id="stop" class="ghost" type="button">Stop studying</button>

@@ -81,6 +81,8 @@ h3 { margin: 16px 0 6px; font-size: 18px; font-weight: 900; }
   padding: 16px 18px; border-left: 6px solid var(--accent2); background: var(--soft); border-radius: 12px;
 }
 .question.dare { border-left-color: var(--gold); }
+.question.spicy { border-left-color: #ff4d1f; }
+.spicy-tag { background: #ff4d1f; color: #fff; }
 .dare-tag { display: inline-block; background: var(--gold); color: #3a2500; font-size: 13px; font-weight: 900;
   padding: 2px 10px; border-radius: 999px; margin-bottom: 6px; }
 .timer { font-size: 56px; font-weight: 900; font-variant-numeric: tabular-nums; margin: 4px 0 8px; color: var(--accent); }
