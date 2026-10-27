@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Study Break</title>
+  <meta name="description" content="Study together. One question at every break.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <h1>Study Break</h1>
+    <p id="conn" class="conn"></p>
+    <button id="compact" class="ghost" type="button" aria-pressed="false">Compact view</button>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <div id="announce" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+</body>
+</html>

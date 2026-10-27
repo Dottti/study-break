@@ -1,0 +1,10 @@
+{
+  "name": "Study Break",
+  "short_name": "Study Break",
+  "description": "Study together. One question at every break.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#fbf7f2",
+  "theme_color": "#b8475a",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

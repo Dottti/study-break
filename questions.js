@@ -1,0 +1,48 @@
+// The 40 questions, in play order. Levels: 0-14 light, 15-29 deeper, 30-39 close.
+export const QUESTIONS = [
+  'What is a small thing that always makes your day better?',
+  'What food could you eat every day for a month?',
+  'What was your favorite cartoon as a kid?',
+  'If we had a free day tomorrow with no studying, what would we do?',
+  'What song do you play when you need energy?',
+  'What is a skill you wish you had without practice?',
+  'What is the funniest thing that happened to you this year?',
+  'Morning person or night person, and why?',
+  'What is one place you want us to visit together?',
+  'What subject did you hate most in school?',
+  'What is your comfort movie or show?',
+  'What is the best gift you ever got?',
+  'What is a habit of mine you find cute?',
+  'If you could live in any city for one year, which one?',
+  'What would your perfect weekend breakfast be?',
+
+  'What are you most proud of that few people know about?',
+  'What does a good day look like for you, start to finish?',
+  'What is something you were scared of and did anyway?',
+  'Who taught you the most about life, and what did they teach you?',
+  'What do you want your life to look like in five years?',
+  'What is something you changed your mind about recently?',
+  'When do you feel most like yourself?',
+  'What is one thing you want to get better at this year?',
+  'What is a memory from your childhood you think about often?',
+  'What stresses you most about studying right now?',
+  'What helps you most when you feel down?',
+  'What is a dream you have not told many people?',
+  'What does home mean to you?',
+  'What is one thing you want us to try together?',
+  'What is something you are thankful for today?',
+
+  'When did you first feel close to me?',
+  'What is something I do that makes you feel loved?',
+  'What is one thing I could do to support you better?',
+  'What is your favorite memory of us so far?',
+  'What is something you want to tell me but find hard to say?',
+  'What do you think we do well as a team?',
+  'What is one thing you hope never changes between us?',
+  'What did you think of me the first time we met?',
+  'What is a promise you want us to make for the next year?',
+  'Finish this sentence: "When I think about our future, I feel..."',
+];
+
+export const LEVELS = ['Light', 'Deeper', 'Close'];
+export const levelOf = (i) => (i < 15 ? 0 : i < 30 ? 1 : 2);
