@@ -1,7 +1,8 @@
-// Study Break: two people study on their own laptops; each break unlocks one question.
+// Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync is peer-to-peer (PeerJS). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js';
-import { CHARACTERS, charById, titleFor } from './characters.js';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=3';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=3';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=3';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -10,11 +11,19 @@ const KEY = 'studybreak' + PROFILE;
 const TOTAL = QUESTIONS.length;
 const other = (w) => (w === 'a' ? 'b' : 'a');
 
+// Pop-up gaps, in minutes: random between the two.
+const GAP_MIN = 3;
+const GAP_MAX = 10;
+const REVEAL_MIN = 3; // minutes the reveal stays open before studying resumes on its own
+
 // Points
-const PTS_ANSWER = 5;   // lock in an answer
-const PTS_DARE = 10;    // a dare done by voice
-const PTS_TEAM = 3;     // both answered the same question
-const PTS_GUESS = 10;   // partner says your guess was right
+const PTS_ANSWER = 5;    // lock in an answer
+const PTS_DARE = 10;     // the dare, done by voice
+const PTS_TEAM = 3;      // both answered the same question
+const PTS_GUESS = 10;    // partner says your guess was right
+const STREAK_AT = 3;     // this many right guesses in a row doubles the next one
+const PTS_RAPID = 5;     // per matching rapid-fire pick
+const PTS_SWEEP = 10;    // all three rapid-fire picks matched
 
 // ---------- state ----------
 
@@ -23,13 +32,16 @@ function blank() {
     me: null, room: null,
     names: { a: '', b: '' },
     chars: { a: '', b: '' },
-    shared: { v: 0, phase: 'idle', endsAt: null, breakQ: null, focusMin: 25, breakMin: 5 },
-    answers: {}, // answers[q][who] = { text, guess, voice, at }
-    judged: {},  // judged[q][who] = true/false: was who's guess right (marked by the other player)
+    shared: { v: 0, phase: 'idle', q: null, popAt: null, revealAt: null },
+    answers: {},   // answers[q][who] = { text, guess, voice, at }
+    judged: {},    // judged[q][who] = true/false: was who's guess right (marked by the other player)
+    reactions: {}, // reactions[q][who] = reaction id that who gave to the other's answer
+    rapid: {},     // rapid[q][who] = [0|1, 0|1, 0|1]
   };
 }
 let S = load() || blank();
-S.chars ||= { a: '', b: '' };
+for (const k of ['chars', 'reactions', 'rapid']) S[k] ||= k === 'chars' ? { a: '', b: '' } : {};
+if (!('q' in S.shared)) S.shared = { v: S.shared.v + 1, phase: 'idle', q: null, popAt: null };
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; }
 }
@@ -40,12 +52,33 @@ function save() {
 const nameOf = (who) => S.names[who] || (who === S.me ? 'You' : 'your partner');
 const meName = () => nameOf(S.me);
 const partnerName = () => nameOf(other(S.me));
+const charName = (who) => (S.chars[who] ? charById(S.chars[who]).name : nameOf(who));
 const faceOf = (who) => (S.chars[who] ? charById(S.chars[who]).emoji : '❔');
 const both = (q) => !!(S.answers[q] && S.answers[q].a && S.answers[q].b);
+const bothRapid = (q) => !!(S.rapid[q] && S.rapid[q].a && S.rapid[q].b);
 function answeredCount() {
   let n = 0;
   while (n < TOTAL && both(n)) n++;
   return n;
+}
+function rapidMatches(q) {
+  if (!bothRapid(q)) return 0;
+  return S.rapid[q].a.filter((v, i) => v === S.rapid[q].b[i]).length;
+}
+// Right guesses in a row before question q (dares and unjudged ones are skipped).
+function streakBefore(who, q) {
+  let s = 0;
+  for (let i = 0; i < q; i++) {
+    const j = S.judged[i]?.[who];
+    if (j === undefined) continue;
+    s = j ? s + 1 : 0;
+  }
+  return s;
+}
+const currentStreak = (who) => streakBefore(who, TOTAL);
+function guessPoints(who, q) {
+  if (S.judged[q]?.[who] !== true) return 0;
+  return streakBefore(who, q) >= STREAK_AT ? PTS_GUESS * 2 : PTS_GUESS;
 }
 function score(who) {
   let pts = 0;
@@ -53,7 +86,11 @@ function score(who) {
     if (!byWho[who]) continue;
     pts += QUESTIONS[q].dare ? PTS_DARE : PTS_ANSWER;
     if (both(q)) pts += PTS_TEAM;
-    if (S.judged[q]?.[who] === true) pts += PTS_GUESS;
+    pts += guessPoints(who, +q);
+  }
+  for (const q of Object.keys(S.rapid)) {
+    const m = rapidMatches(+q);
+    pts += m * PTS_RAPID + (m === 3 ? PTS_SWEEP : 0);
   }
   return pts;
 }
@@ -127,7 +164,14 @@ function send(msg) {
   if (conn && conn.open) conn.send({ ...msg, from: S.me });
 }
 async function sendFull() {
-  send({ t: 'full', shared: S.shared, answers: S.answers, judged: S.judged, voices: await vKeys() });
+  send({ t: 'full', shared: S.shared, answers: S.answers, judged: S.judged, reactions: S.reactions, rapid: S.rapid, voices: await vKeys() });
+}
+function mergeMap(mine, theirs, onNew) {
+  for (const [q, byWho] of Object.entries(theirs || {}))
+    for (const [w, val] of Object.entries(byWho)) {
+      mine[q] ||= {};
+      if (mine[q][w] === undefined) { mine[q][w] = val; if (onNew) onNew(+q, w, val); }
+    }
 }
 
 async function handle(d) {
@@ -139,16 +183,10 @@ async function handle(d) {
     bump(from);
   } else if (d.t === 'full') {
     applyShared(d.shared, from);
-    for (const [q, byWho] of Object.entries(d.answers || {}))
-      for (const [w, a] of Object.entries(byWho)) {
-        S.answers[q] ||= {};
-        if (!S.answers[q][w]) { S.answers[q][w] = a; if (w === from) announcePartnerAnswer(+q); }
-      }
-    for (const [q, byWho] of Object.entries(d.judged || {}))
-      for (const [w, j] of Object.entries(byWho)) {
-        S.judged[q] ||= {};
-        if (S.judged[q][w] === undefined) S.judged[q][w] = j;
-      }
+    mergeMap(S.answers, d.answers, (q, w) => { if (w === from) announcePartnerAnswer(q); });
+    mergeMap(S.judged, d.judged);
+    mergeMap(S.reactions, d.reactions);
+    mergeMap(S.rapid, d.rapid);
     const theirs = new Set(d.voices || []);
     for (const k of await vKeys()) {
       if (!theirs.has(k)) { const v = await vGet(k); send({ t: 'voice', key: k, mime: v.mime, buf: v.buf }); }
@@ -160,6 +198,7 @@ async function handle(d) {
     S.answers[d.q][from] = d.answer;
     announcePartnerAnswer(d.q);
     bump(from);
+    if (QUESTIONS[d.q].dare) taunt(from, 'dare');
     if (both(d.q)) hearts(true);
   } else if (d.t === 'voice') {
     await vPut(d.key, { mime: d.mime, buf: d.buf });
@@ -167,11 +206,21 @@ async function handle(d) {
     S.judged[d.q] ||= {};
     S.judged[d.q][d.who] = d.val;
     if (d.who === S.me) {
-      if (d.val) { hearts(true); announce(`${partnerName()} says you guessed right. Plus ${PTS_GUESS} points for you.`); }
+      if (d.val) { hearts(true); announce(`${partnerName()} says you guessed right. Plus ${guessPoints(S.me, d.q)} points for you.`); taunt(S.me, 'point'); }
       else announce(`${partnerName()} says your guess missed. No points this time.`);
     }
+  } else if (d.t === 'react') {
+    S.reactions[d.q] ||= {};
+    S.reactions[d.q][from] = d.r;
+    const r = reactionById(d.r);
+    if (r) { announce(`${partnerName()} reacted to your answer: ${r.name}.`); bump(from); }
+  } else if (d.t === 'rapid') {
+    S.rapid[d.q] ||= {};
+    S.rapid[d.q][from] = d.picks;
+    if (bothRapid(d.q)) rapidDone(d.q);
+    else announce(`${partnerName()} locked in the rapid fire picks.`);
   }
-  checkDone();
+  afterChange();
   save();
   render();
 }
@@ -181,9 +230,9 @@ function applyShared(inc, from) {
   if (!inc) return;
   const cur = S.shared;
   if (inc.v > cur.v || (inc.v === cur.v && from === 'a' && JSON.stringify(inc) !== JSON.stringify(cur))) {
-    const before = cur.phase;
+    const before = cur.phase + ':' + cur.q;
     S.shared = inc;
-    if (inc.phase !== before) onPhase();
+    if (inc.phase + ':' + inc.q !== before) onPhase();
   }
 }
 function setShared(patch) {
@@ -194,56 +243,46 @@ function setShared(patch) {
   render(true);
 }
 
-// ---------- timer ----------
+// ---------- the pop-up loop ----------
 
-let lastWarn = null;
+const randomGap = () => (GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN)) * UNIT;
+
 function tick() {
   const sh = S.shared;
-  if ((sh.phase === 'focus' || sh.phase === 'break') && sh.endsAt) {
-    const left = sh.endsAt - Date.now();
-    if (left <= 0) {
-      if (sh.phase === 'focus') {
-        setShared({ phase: 'break', breakQ: answeredCount(), endsAt: Date.now() + sh.breakMin * UNIT });
-      } else {
-        setShared({ phase: 'focus', breakQ: null, endsAt: Date.now() + sh.focusMin * UNIT });
-      }
-      return;
-    }
-    const warnKey = `${sh.phase}-${sh.endsAt}`;
-    const mins = sh.phase === 'focus' ? sh.focusMin : sh.breakMin;
-    if (left <= UNIT && mins > 1 && lastWarn !== warnKey) {
-      lastWarn = warnKey;
-      announce(sh.phase === 'focus' ? 'One minute until the next question.' : 'One minute left in the break.');
-    }
+  if (sh.phase === 'question' && sh.revealAt && Date.now() >= sh.revealAt + REVEAL_MIN * UNIT && (S.me === 'a' || !(conn && conn.open))) {
+    resumeStudy();
+    return;
   }
-  const t = document.getElementById('timer');
-  if (t && sh.endsAt) t.textContent = fmt(sh.endsAt - Date.now());
-}
-function fmt(ms) {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-function checkDone() {
-  if (answeredCount() >= TOTAL && S.shared.phase !== 'done') {
-    S.shared = { ...S.shared, phase: 'done', endsAt: null, breakQ: null, v: S.shared.v + 1 };
-    send({ t: 'state', shared: S.shared });
-    onPhase();
+  if (sh.phase === 'study' && sh.popAt && Date.now() >= sh.popAt) {
+    const q = answeredCount();
+    if (q >= TOTAL) { setShared({ phase: 'done', q: null, popAt: null }); return; }
+    setShared({ phase: 'question', q, popAt: null, revealAt: null });
   }
+}
+// Called after anything changes: once both answered the open question, the reveal clock starts.
+function afterChange() {
+  const sh = S.shared;
+  if (sh.phase === 'question' && both(sh.q) && !sh.revealAt) setShared({ revealAt: Date.now() });
+}
+// Back to studying (or the end), from the button or when the reveal has been open long enough.
+function resumeStudy() {
+  if (answeredCount() >= TOTAL) setShared({ phase: 'done', q: null, popAt: null, revealAt: null });
+  else setShared({ phase: 'study', q: null, popAt: Date.now() + randomGap(), revealAt: null });
 }
 
 function onPhase() {
   const sh = S.shared;
-  // A half-typed answer survives until a new question comes up.
-  if (sh.phase === 'break' && sh.breakQ !== draftQ) { draft = { text: '', guess: '', voice: null }; draftQ = sh.breakQ; }
-  if (sh.phase === 'break') {
-    const qq = QUESTIONS[sh.breakQ];
+  if (sh.phase === 'question') {
+    const qq = QUESTIONS[sh.q];
+    if (draftQ !== sh.q) { draft = { text: '', guess: '', voice: null }; rapidDraft = [null, null, null]; draftQ = sh.q; }
     chime(true);
-    notify('Break time', qq.text);
-    announce(`Break time. Question ${sh.breakQ + 1}${qq.dare ? ', a dare' : qq.spicy ? ', spicy one' : ''}: ${qq.text}`);
+    notify('Study Break', qq.text);
+    announce(`Pop! Question ${sh.q + 1}${qq.dare ? ', a dare' : qq.spicy ? ', spicy one' : ''}${isRapidQ(sh.q) ? ', with rapid fire' : ''}: ${qq.text}`);
     focusHeading = true;
-  } else if (sh.phase === 'focus') {
+  } else if (sh.phase === 'study') {
     chime(false);
-    announce(`Focus time. ${sh.focusMin} minutes.`);
+    announce('Back to studying. The next question will pop up when you least expect it.');
+    focusHeading = true;
   } else if (sh.phase === 'done') {
     chime(true);
     hearts(true);
@@ -289,7 +328,7 @@ function announce(text) {
   setTimeout(() => { el.textContent = text; }, 60);
 }
 function announcePartnerAnswer(q) {
-  if (S.shared.phase === 'break' && S.shared.breakQ === q) {
+  if (S.shared.phase === 'question' && S.shared.q === q) {
     announce(S.answers[q][S.me] ? `${partnerName()} answered. Answers are showing.` : `${partnerName()} has answered. Your turn.`);
   }
 }
@@ -329,11 +368,23 @@ function bump(who) {
     el.classList.add('bounce');
   });
 }
+// Trash talk from a character, shown to both players for a few seconds.
+let tauntText = '';
+let tauntTimer = null;
+function taunt(who, event) {
+  if (!S.chars[who]) return;
+  tauntText = `${faceOf(who)} ${tauntFor(S.chars[who], event)}`;
+  clearTimeout(tauntTimer);
+  tauntTimer = setTimeout(() => { tauntText = ''; render(true); }, 7000);
+  if (who !== S.me) setTimeout(() => announce(tauntFor(S.chars[who], event)), 1500);
+  render(true);
+}
 
-// ---------- voice recording ----------
+// ---------- answering ----------
 
 let draft = { text: '', guess: '', voice: null }; // voice = { blob, mime }
-let draftQ = S.shared.breakQ;
+let draftQ = S.shared.q;
+let rapidDraft = [null, null, null];
 let recorder = null;
 let recTimer = null;
 async function toggleRecord() {
@@ -364,7 +415,7 @@ async function toggleRecord() {
 }
 
 async function submitAnswer() {
-  const q = S.shared.breakQ;
+  const q = S.shared.q;
   const qq = QUESTIONS[q];
   const text = qq.dare ? '' : draft.text.trim();
   if (qq.dare && !draft.voice) { announce('This one is a dare. Record a voice note to do it.'); return; }
@@ -382,7 +433,8 @@ async function submitAnswer() {
   const got = qq.dare ? PTS_DARE : PTS_ANSWER;
   if (both(q)) { hearts(true); announce(`Locked in. Plus ${got + PTS_TEAM} points. Answers are showing.`); }
   else announce(`Locked in. Plus ${got} points. Waiting for ${partnerName()}.`);
-  checkDone();
+  if (qq.dare) taunt(S.me, 'dare');
+  afterChange();
   save();
   focusHeading = true;
   render(true);
@@ -393,10 +445,38 @@ function judge(q, val) {
   S.judged[q] ||= {};
   S.judged[q][who] = val;
   send({ t: 'judge', q, who, val });
-  if (val) { hearts(true); announce(`${PTS_GUESS} points for ${partnerName()}.`); }
+  if (val) { hearts(true); announce(`${guessPoints(who, q)} points for ${partnerName()}.`); taunt(who, 'point'); }
   else announce('No point this time.');
+  afterChange();
   save();
   render(true);
+}
+
+function react(q, id) {
+  S.reactions[q] ||= {};
+  S.reactions[q][S.me] = id;
+  send({ t: 'react', q, r: id });
+  announce(`You reacted: ${reactionById(id).name}.`);
+  bump(other(S.me));
+  save();
+  render(true);
+}
+
+function submitRapid() {
+  const q = S.shared.q;
+  if (rapidDraft.some((v) => v === null)) { announce('Pick one on each of the three.'); return; }
+  S.rapid[q] ||= {};
+  S.rapid[q][S.me] = rapidDraft.slice();
+  send({ t: 'rapid', q, picks: S.rapid[q][S.me] });
+  if (bothRapid(q)) rapidDone(q);
+  else announce(`Rapid fire locked. Waiting for ${partnerName()}.`);
+  save();
+  render(true);
+}
+function rapidDone(q) {
+  const m = rapidMatches(q);
+  if (m === 3) { hearts(true); announce(`Rapid fire: all three matched. ${PTS_RAPID * 3 + PTS_SWEEP} points each.`); taunt(S.me, 'sweep'); }
+  else announce(`Rapid fire: ${m} of 3 matched. ${m * PTS_RAPID} points each.`);
 }
 
 // ---------- rendering ----------
@@ -417,8 +497,8 @@ function renderConn() {
 function render(force) {
   renderConn();
   const sh = S.shared;
-  const key = [view, S.room, sh.v, JSON.stringify(S.answers[sh.breakQ] || {}), JSON.stringify(S.judged), !!recorder, !!draft.voice,
-    S.names.a, S.names.b, S.chars.a, S.chars.b, score('a'), score('b')].join('|');
+  const key = [view, S.room, sh.v, JSON.stringify(S.answers[sh.q] || {}), JSON.stringify(S.judged), JSON.stringify(S.reactions[sh.q] || {}),
+    JSON.stringify(S.rapid[sh.q] || {}), !!recorder, !!draft.voice, S.names.a, S.names.b, S.chars.a, S.chars.b, score('a'), score('b'), tauntText].join('|');
   if (!force && key === lastKey) return;
   lastKey = key;
   // Keep keyboard / screen-reader focus where it was when the page redraws under the user.
@@ -470,27 +550,32 @@ function setupView() {
     <button id="join" type="button">Join game</button>
   </section>
   <section class="extra">
-    <h3>How points work</h3>
+    <h3>How it works</h3>
     <ul class="rules">
-      <li>Lock in an answer: ${PTS_ANSWER} points. The singing dare: ${PTS_DARE}.</li>
-      <li>Both of you answer the same question: ${PTS_TEAM} more each.</li>
-      <li>Guess your partner's answer right: ${PTS_GUESS} points. Your partner is the judge.</li>
+      <li>You both study. A question pops up on both laptops at a random moment, every ${GAP_MIN} to ${GAP_MAX} minutes.</li>
+      <li>Answer in private. When you both lock in, both answers show at once.</li>
+      <li>Lock in an answer: ${PTS_ANSWER} points. The singing dare: ${PTS_DARE}. Both answer: ${PTS_TEAM} more each.</li>
+      <li>Guess your partner's answer right: ${PTS_GUESS} points. ${STREAK_AT} right in a row doubles the next one.</li>
+      <li>Every ${5}th question comes with rapid fire: three this-or-that picks. ${PTS_RAPID} per match, ${PTS_SWEEP} extra for all three.</li>
+      <li>React to each other's answers. Your character talks trash when you score.</li>
     </ul>
   </section>`;
 }
 
 function scoreBar() {
   const me = S.me, them = other(me);
+  const st = (who) => (currentStreak(who) >= STREAK_AT ? ` <span class="streak" title="On a streak">🔥 ${currentStreak(who)}</span>` : '');
   return `<p class="title">${esc(teamTitle())}</p>
   <div class="scorebar" aria-label="Score">
-    <div class="who">${avatar(me)}<span>${esc(meName())}<br><span class="pts">${score(me)} pts</span></span></div>
+    <div class="who">${avatar(me)}<span>${esc(meName())}${st(me)}<br><span class="pts">${score(me)} pts</span></span></div>
     <span class="vs" aria-hidden="true">vs</span>
-    <div class="who"><span>${esc(partnerName())}<br><span class="pts">${score(them)} pts</span></span>${avatar(them)}</div>
-  </div>`;
+    <div class="who"><span>${esc(partnerName())}${st(them)}<br><span class="pts">${score(them)} pts</span></span>${avatar(them)}</div>
+  </div>
+  ${tauntText ? `<p class="taunt" role="status">${esc(tauntText)}</p>` : ''}`;
 }
 function statusLine() {
   const sh = S.shared;
-  const n = sh.phase === 'break' ? sh.breakQ + 1 : Math.min(answeredCount() + 1, TOTAL);
+  const n = sh.phase === 'question' ? sh.q + 1 : Math.min(answeredCount() + 1, TOTAL);
   return `<p class="meta">Question ${n} of ${TOTAL}. Level: ${LEVELS[levelOf(n - 1)]}.</p>`;
 }
 
@@ -501,23 +586,18 @@ function gameView() {
     body = `<section>
       <h2>Ready when you are</h2>
       ${scoreBar()}${statusLine()}
-      <div class="row extra">
-        <div><label for="focusMin">Focus minutes</label><input id="focusMin" type="number" min="1" max="120" value="${sh.focusMin}"></div>
-        <div><label for="breakMin">Break minutes</label><input id="breakMin" type="number" min="1" max="60" value="${sh.breakMin}"></div>
-      </div>
       <button id="start" type="button">Start studying</button>
-      <p class="meta">The next question unlocks when the focus timer ends. Either of you can start.</p>
+      <p class="meta">Questions pop up on both laptops at random, every ${GAP_MIN} to ${GAP_MAX} minutes. Either of you can start.</p>
     </section>`;
-  } else if (sh.phase === 'focus') {
+  } else if (sh.phase === 'study') {
     body = `<section>
-      <h2>Focus time</h2>
+      <h2>Studying</h2>
       ${scoreBar()}${statusLine()}
-      <p class="timer" id="timer">${fmt(sh.endsAt - Date.now())}</p>
-      <p class="meta">Question ${answeredCount() + 1} unlocks when the timer ends. Eyes on the books.</p>
+      <p class="big">📚 Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>
       <button id="stop" class="ghost" type="button">Stop studying</button>
     </section>`;
-  } else if (sh.phase === 'break') {
-    body = breakView();
+  } else if (sh.phase === 'question') {
+    body = questionView();
   } else if (sh.phase === 'done') {
     body = `<section>
       <h2>You finished all 40 questions</h2>
@@ -532,9 +612,29 @@ function gameView() {
     <p class="meta">Game code: <span class="code">${esc(S.room)}</span></p></div>`;
 }
 
-function breakView() {
+function rapidHtml(q) {
+  const pairs = rapidPairs(q);
+  const mine = S.rapid[q]?.[S.me];
+  const theirs = S.rapid[q]?.[other(S.me)];
+  if (mine && theirs) {
+    const m = rapidMatches(q);
+    const rows = pairs.map((p, i) => `<li>${esc(p[0])} or ${esc(p[1])}: you ${esc(p[mine[i]])}, ${esc(partnerName())} ${esc(p[theirs[i]])} ${mine[i] === theirs[i] ? '✅' : '❌'}</li>`).join('');
+    return `<div class="rapid"><h3>⚡ Rapid fire: ${m} of 3 matched${m === 3 ? ', sweep!' : ''}</h3><ul class="rules">${rows}</ul></div>`;
+  }
+  if (mine) return `<div class="rapid"><h3>⚡ Rapid fire locked</h3><p class="meta">Waiting for ${esc(partnerName())}.</p></div>`;
+  const rows = pairs.map((p, i) => `
+    <fieldset class="pick"><legend>${i + 1}.</legend>
+      <button type="button" data-rapid="${i}" data-v="0" class="${rapidDraft[i] === 0 ? '' : 'ghost'}" aria-pressed="${rapidDraft[i] === 0}">${esc(p[0])}</button>
+      <button type="button" data-rapid="${i}" data-v="1" class="${rapidDraft[i] === 1 ? '' : 'ghost'}" aria-pressed="${rapidDraft[i] === 1}">${esc(p[1])}</button>
+    </fieldset>`).join('');
+  return `<div class="rapid"><h3>⚡ Rapid fire: pick fast, match your partner</h3>
+    <p class="meta">${PTS_RAPID} points per match, ${PTS_SWEEP} extra if all three match.</p>
+    ${rows}<button id="rapidLock" type="button">Lock in picks</button></div>`;
+}
+
+function questionView() {
   const sh = S.shared;
-  const q = sh.breakQ;
+  const q = sh.q;
   const qq = QUESTIONS[q];
   const mine = S.answers[q]?.[S.me];
   const theirs = S.answers[q]?.[other(S.me)];
@@ -554,38 +654,46 @@ function breakView() {
   } else if (!theirs) {
     inner = `<p>Your answer is locked in. Waiting for ${esc(partnerName())}.</p>`;
   } else {
-    inner = revealHtml(q, true);
+    inner = revealHtml(q, true) + `<p class="meta">Studying resumes on its own in ${REVEAL_MIN} minutes, or press the button.</p>
+      <button id="resume" type="button">Back to studying</button>`;
   }
   return `<section>
-    <h2>Break: question ${q + 1}</h2>
+    <h2>Pop! Question ${q + 1}</h2>
     ${scoreBar()}${statusLine()}
+    ${isRapidQ(q) ? rapidHtml(q) : ''}
     <p class="question${qq.dare ? ' dare' : qq.spicy ? ' spicy' : ''}">${qq.dare ? '<span class="dare-tag">Dare</span><br>' : qq.spicy ? '<span class="dare-tag spicy-tag">Spicy 🌶️</span><br>' : ''}${esc(qq.text)}</p>
     ${inner}
-    <p class="meta">Break ends in <span id="timer">${fmt(sh.endsAt - Date.now())}</span>.</p>
     <button id="stop" class="ghost" type="button">Stop studying</button>
   </section>`;
 }
 
-function revealHtml(q, withJudge) {
+function revealHtml(q, live) {
   const me = S.me;
   const them = other(me);
   const qq = QUESTIONS[q];
   const card = (who) => {
     const a = S.answers[q][who];
     const guessOf = who === me ? partnerName() : meName();
+    const got = S.reactions[q]?.[other(who)]; // reaction the other player gave to this answer
+    let reactHtml = '';
+    if (got) reactHtml = `<p class="reaction">${reactionById(got)?.emoji || ''} ${esc(nameOf(other(who)))} reacted: ${esc(reactionById(got)?.name || got)}</p>`;
+    else if (live && who === them) reactHtml = `<p class="meta">React to ${esc(partnerName())}'s answer:</p>` +
+      REACTIONS.map((r) => `<button type="button" class="ghost react" data-react="${r.id}" aria-label="${esc(r.name)}">${r.emoji} ${esc(r.name)}</button>`).join('');
     return `<article>
       <h4>${avatar(who)} ${esc(nameOf(who))}</h4>
       ${a.text ? `<p>${esc(a.text)}</p>` : ''}
       ${a.voice ? `<audio controls data-key="${vKey(q, who)}" aria-label="Voice note from ${esc(nameOf(who))}"></audio>` : ''}
       ${qq.dare ? '' : `<p class="guess">Guessed ${esc(guessOf)} would say: ${a.guess ? esc(a.guess) : 'no guess'}</p>`}
+      ${reactHtml}
     </article>`;
   };
   let judgeHtml = '';
-  if (withJudge && !qq.dare) {
+  if (live && !qq.dare) {
     const j = S.judged[q]?.[them];
+    const worth = streakBefore(them, q) >= STREAK_AT ? PTS_GUESS * 2 : PTS_GUESS;
     judgeHtml = j === undefined
       ? `<p>Did ${esc(partnerName())} guess you right?</p>
-         <button data-judge="1" type="button">Yes, ${PTS_GUESS} points for ${esc(partnerName())}</button>
+         <button data-judge="1" type="button">Yes, ${worth} points for ${esc(partnerName())}</button>
          <button data-judge="0" class="ghost" type="button">No</button>`
       : `<p class="meta">You marked ${esc(partnerName())}'s guess: ${j ? 'right' : 'missed'}.</p>`;
   }
@@ -604,7 +712,7 @@ function bookView() {
     <p class="meta">${n} of ${TOTAL} questions answered together.</p>
     <button id="closeBook" type="button">Back to the game</button>
     <button id="export" class="ghost" type="button">Save the memory book as a file</button>
-    ${items.join('') || '<p>No answers yet. Finish a focus block to unlock the first question.</p>'}
+    ${items.join('') || '<p>No answers yet. Start studying and wait for the first pop-up.</p>'}
   </section>`;
 }
 
@@ -664,15 +772,15 @@ function wire() {
     announce(`Joined as ${charById(ch).name}. Connecting to your partner.`);
   });
   on('start', () => {
-    const f = Math.max(1, Math.min(120, +$('#focusMin').value || 25));
-    const b = Math.max(1, Math.min(60, +$('#breakMin').value || 5));
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
-    setShared({ phase: 'focus', focusMin: f, breakMin: b, breakQ: null, endsAt: Date.now() + f * UNIT });
+    setShared({ phase: 'study', q: null, popAt: Date.now() + randomGap(), revealAt: null });
   });
-  on('stop', () => setShared({ phase: 'idle', endsAt: null, breakQ: null }));
+  on('stop', () => setShared({ phase: 'idle', q: null, popAt: null, revealAt: null }));
+  on('resume', resumeStudy);
   on('rec', toggleRecord);
   on('delrec', () => { draft.voice = null; announce('Voice note deleted.'); render(true); });
   on('submit', submitAnswer);
+  on('rapidLock', submitRapid);
   on('openBook', () => { view = 'book'; focusHeading = true; render(true); });
   on('closeBook', () => { view = 'game'; focusHeading = true; render(true); });
   on('export', exportBook);
@@ -686,7 +794,13 @@ function wire() {
   const guess = $('#guess');
   if (guess) guess.oninput = () => { draft.guess = guess.value; };
   document.querySelectorAll('[data-judge]').forEach((b) => {
-    b.onclick = () => judge(S.shared.breakQ, b.dataset.judge === '1');
+    b.onclick = () => judge(S.shared.q, b.dataset.judge === '1');
+  });
+  document.querySelectorAll('[data-react]').forEach((b) => {
+    b.onclick = () => react(S.shared.q, b.dataset.react);
+  });
+  document.querySelectorAll('[data-rapid]').forEach((b) => {
+    b.onclick = () => { rapidDraft[+b.dataset.rapid] = +b.dataset.v; render(true); };
   });
 }
 
@@ -705,8 +819,10 @@ async function exportBook() {
     const parts = [];
     for (const who of ['a', 'b']) {
       const a = S.answers[q][who];
+      const r = S.reactions[q]?.[other(who)];
       parts.push(`<h3>${faceOf(who)} ${esc(S.names[who] || who)}</h3>${a.text ? `<p>${esc(a.text)}</p>` : ''}${a.voice ? await toData(vKey(q, who)) : ''}
-        ${QUESTIONS[q].dare ? '' : `<p><em>Guess: ${esc(a.guess || 'no guess')}</em></p>`}`);
+        ${QUESTIONS[q].dare ? '' : `<p><em>Guess: ${esc(a.guess || 'no guess')}</em></p>`}
+        ${r ? `<p>${reactionById(r)?.emoji || ''} ${esc(S.names[other(who)])} reacted: ${esc(reactionById(r)?.name || r)}</p>` : ''}`);
     }
     rows.push(`<section><h2>${q + 1}. ${esc(QUESTIONS[q].text)}</h2>${parts.join('')}</section>`);
   }
@@ -720,7 +836,7 @@ async function exportBook() {
   announce('Memory book saved to your downloads.');
 }
 
-// ---------- compact ("widget") view ----------
+// ---------- top bar buttons ----------
 
 const compactBtn = $('#compact');
 function setCompact(onOff) {
@@ -746,4 +862,4 @@ setSound(soundOn);
 hearts(false);
 render(true);
 if (S.room) startPeer();
-setInterval(tick, 250);
+setInterval(tick, 500);

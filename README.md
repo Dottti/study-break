@@ -1,6 +1,6 @@
 # Study Break
 
-Study together on two laptops. Every focus block unlocks one question for both of you.
+Study together on two laptops. Questions pop up at random while you study, every 3 to 10 minutes.
 Pick a character, answer by typing (one dare is sung by voice), guess the other's answer, then see both at once. Points and hearts.
 
 Plain HTML and JavaScript, no build step. Sync is peer to peer (PeerJS), so answers stay on your two laptops.
