@@ -7,13 +7,16 @@
   <meta name="description" content="Study together. One question at every break.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
+  <div id="hearts" class="hearts" aria-hidden="true"></div>
   <header class="top">
-    <h1>Study Break</h1>
+    <h1>Study Break <span aria-hidden="true">💕</span></h1>
     <p id="conn" class="conn"></p>
     <button id="compact" class="ghost" type="button" aria-pressed="false">Compact view</button>
   </header>
