@@ -1,8 +1,8 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync is peer-to-peer (PeerJS). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=4';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=4';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=4';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=5';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=5';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=5';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -594,7 +594,6 @@ function gameView() {
       <h2>Studying</h2>
       ${scoreBar()}${statusLine()}
       <p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>
-      <button id="stop" class="ghost" type="button">Stop studying</button>
     </section>`;
   } else if (sh.phase === 'question') {
     body = questionView();
@@ -663,7 +662,6 @@ function questionView() {
     ${isRapidQ(q) ? rapidHtml(q) : ''}
     <p class="question${qq.dare ? ' dare' : qq.spicy ? ' spicy' : ''}">${qq.dare ? '<span class="dare-tag">Dare</span><br>' : qq.spicy ? '<span class="dare-tag spicy-tag">Spicy 🌶️</span><br>' : ''}${esc(qq.text)}</p>
     ${inner}
-    <button id="stop" class="ghost" type="button">Stop studying</button>
   </section>`;
 }
 
@@ -775,7 +773,6 @@ function wire() {
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
     setShared({ phase: 'study', q: null, popAt: Date.now() + randomGap(), revealAt: null });
   });
-  on('stop', () => setShared({ phase: 'idle', q: null, popAt: null, revealAt: null }));
   on('resume', resumeStudy);
   on('rec', toggleRecord);
   on('delrec', () => { draft.voice = null; announce('Voice note deleted.'); render(true); });
