@@ -1,8 +1,8 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync is peer-to-peer (PeerJS). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=3';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=3';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=3';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=4';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=4';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=4';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -332,7 +332,7 @@ function announcePartnerAnswer(q) {
     announce(S.answers[q][S.me] ? `${partnerName()} answered. Answers are showing.` : `${partnerName()} has answered. Your turn.`);
   }
 }
-const HEART_SET = ['💗', '💖', '💕', '❤️', '🩷', '💘'];
+const HEART_SET = ['💗', '💜', '🩷', '💖', '🤍', '💕'];
 function hearts(burst) {
   const box = document.getElementById('hearts');
   if (burst) {
@@ -593,7 +593,7 @@ function gameView() {
     body = `<section>
       <h2>Studying</h2>
       ${scoreBar()}${statusLine()}
-      <p class="big">📚 Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>
+      <p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>
       <button id="stop" class="ghost" type="button">Stop studying</button>
     </section>`;
   } else if (sh.phase === 'question') {
