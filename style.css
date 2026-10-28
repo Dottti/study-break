@@ -326,3 +326,8 @@ h2 { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-
     animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   :root:not(.force-motion) section.arrive, :root:not(.force-motion) .pair article.flip { animation: none !important; }
 }
+
+/* Rename: always-editable name on the game screen */
+.rename { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.5rem 0; }
+.rename label { font-weight: 600; }
+.rename input { flex: 1; min-width: 10rem; }

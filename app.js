@@ -206,6 +206,7 @@ async function handle(d) {
   const from = d.from;
   if (from !== other(S.me)) return;
   if (d.t === 'hello') {
+    if (d.name && S.names[from] && d.name !== S.names[from]) announce(`${S.names[from]} changed their name to ${d.name}.`);
     if (d.name) S.names[from] = d.name;
     if (d.char) S.chars[from] = d.char;
     bump(from);
@@ -632,6 +633,7 @@ function wireChat() {
 // ---------- answering ----------
 
 let draft = { text: '', guess: '', voice: null }; // voice = { blob, mime }
+let nameDraft = null; // my name while I am editing it, so a redraw does not wipe it
 let draftQ = S.shared.q;
 let rapidDraft = [null, null, null];
 let recorder = null;
@@ -934,6 +936,9 @@ function gameView() {
   }
   const extra = sh.phase !== 'done' ? `<button id="openBook" class="ghost" type="button">Memory book</button>` : '';
   return nudgeInHtml() + body + `<div class="extra">${extra}
+    <form id="renameForm" class="rename"><label for="myName">Your name</label>
+      <input id="myName" autocomplete="nickname" maxlength="40" value="${esc(nameDraft ?? S.names[S.me])}">
+      <button type="submit" class="ghost">Save name</button></form>
     <button id="leave" class="ghost" type="button">Leave game</button>
     <p class="meta">Game code: <span class="code">${esc(S.room)}</span></p></div>`;
 }
@@ -1129,6 +1134,22 @@ function wire() {
   });
   const ans = $('#ans');
   if (ans) ans.oninput = () => { draft.text = ans.value; };
+  const myName = document.getElementById('myName');
+  if (myName) {
+    myName.oninput = () => { nameDraft = myName.value; };
+    document.getElementById('renameForm').onsubmit = (e) => {
+      e.preventDefault();
+      const name = myName.value.trim();
+      nameDraft = null;
+      if (!name) { announce('Type a name first.'); render(true); return; }
+      if (name === S.names[S.me]) { announce(`Your name is ${name}.`); return; }
+      S.names[S.me] = name;
+      save();
+      send({ t: 'hello', name, char: S.chars[S.me] });
+      render(true);
+      announce(`Name saved. You are now ${name}.`);
+    };
+  }
   const guess = $('#guess');
   if (guess) guess.oninput = () => { draft.guess = guess.value; };
   document.querySelectorAll('[data-judge]').forEach((b) => {
