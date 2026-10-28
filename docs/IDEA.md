@@ -172,6 +172,11 @@ Level 3: close (31 to 40)
 - Tested: two players through a local relay (join, pop-up, pause), a 1.5 MB voice note through the live relay byte
   for byte, wrong-origin connection refused.
 
+- v8 (2026-10-28): he opened his own invite link in the same browser that created the game. The saved game reopened
+  his own seat, so he waited for himself. Now an invite link in a browser that already has a game asks first: own link
+  explains to send it on (or use a private window to test alone); a different game offers Join or Stay. The seat only
+  connects after that answer, so it never bumps the other window.
+
 ## Where it lives
 
 Live link (send this to her): https://dottti.github.io/study-break/

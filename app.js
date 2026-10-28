@@ -1,8 +1,8 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=7';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=7';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=7';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=8';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=8';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=8';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -655,7 +655,30 @@ function waitingHtml() {
   </div>`;
 }
 
+// An invite link opened in a browser that already has a game: either the player's own link, or a different game.
+let joinPrompt = !!(JOIN_CODE && S.room);
+const stripJoin = () => history.replaceState(null, '', location.pathname + location.search.replace(/[?&]join=[^&]*/, '').replace(/^&/, '?'));
+function joinPromptHtml() {
+  if (JOIN_CODE === S.room) {
+    return `<section>
+      <h2>This is your own invite link</h2>
+      <p>This browser already plays game ${esc(S.room)} as ${esc(meName())}, so the link opened your own seat again.
+        Send the link to your partner and they open it on their laptop.</p>
+      <p class="meta">To try both players on one laptop, open the link in a private window (Cmd+Shift+N, or Ctrl+Shift+N on
+        Windows) or in a different browser.</p>
+      <button id="dismissJoin" type="button">OK, back to my game</button>
+    </section>`;
+  }
+  return `<section>
+    <h2>Join game ${esc(JOIN_CODE)}?</h2>
+    <p>This browser is already in game ${esc(S.room)}. Joining game ${esc(JOIN_CODE)} leaves game ${esc(S.room)} on this laptop.</p>
+    <button id="switchGame" type="button">Join game ${esc(JOIN_CODE)}</button>
+    <button id="dismissJoin" class="ghost" type="button">Stay in game ${esc(S.room)}</button>
+  </section>`;
+}
+
 function gameView() {
+  if (joinPrompt) return joinPromptHtml();
   const sh = S.shared;
   let body = '';
   if (sh.phase === 'idle') {
@@ -843,7 +866,7 @@ function wire() {
     S.room = code;
     save();
     askNotify();
-    if (JOIN_CODE) history.replaceState(null, '', location.pathname + location.search.replace(/[?&]join=[^&]*/, '').replace(/^&/, '?'));
+    if (JOIN_CODE) stripJoin();
     startSync();
     focusHeading = true;
     hearts(true);
@@ -866,6 +889,11 @@ function wire() {
   on('openBook', () => { view = 'book'; focusHeading = true; render(true); });
   on('closeBook', () => { view = 'game'; focusHeading = true; render(true); });
   on('export', exportBook);
+  on('dismissJoin', () => { joinPrompt = false; stripJoin(); startSync(); focusHeading = true; render(true); });
+  on('switchGame', () => {
+    try { localStorage.removeItem(KEY); } catch {}
+    location.reload(); // keeps ?join, so the setup screen opens with the code filled in
+  });
   on('leave', () => {
     if (!confirm('Leave this game on this laptop? Your saved answers here will be removed.')) return;
     try { localStorage.removeItem(KEY); } catch {}
@@ -942,6 +970,7 @@ setSound(soundOn);
 // ---------- boot ----------
 
 hearts(false);
+if (joinPrompt) focusHeading = true; // the invite question gets screen-reader focus first
 render(true);
-if (S.room) startSync();
+if (S.room && !joinPrompt) startSync(); // wait for the answer before taking this seat (it would bump the other window)
 setInterval(() => { tick(); render(); }, 500);
