@@ -197,6 +197,20 @@ Level 3: close (31 to 40)
   "New title unlocked" card with a trophy; MSN nudge shake; 40-dot journey bar (Light, Deeper, Close); chat bubbles;
   synthesized sounds (pop, sparkle, point, fanfare, womp, nudge buzz). All decoration is aria-hidden; announcements
   unchanged. His Mac has Reduce motion on, so the game stays calm there; `?motion` forces animations for testing.
+  Also in v12: starting title "Study and cuddles" (was "Strangers at the library"); the name is always editable on the
+  game screen ("Your name" box), and the partner hears the change.
+
+- v13 (2026-10-28): his picks from the idea list. Phone screen stays on while the game is open (Wake Lock), so a
+  phone does not lock and pause the game. Study goals: each sets a goal, "I did it" makes the partner's screen
+  cheer (confetti, fanfare) and they can send a Cheer back. "Thinking of you 💗": a quiet heart floats up on the
+  partner's screen with a soft sound, no buzz, no focus move. End screen leaderboard "Who knows who better" (right
+  guesses each, points, rapid-fire matches; confetti, no prize). Mic check: records 3 s and plays it back.
+
+## Phase 2 ideas (he said later, not now)
+
+- Love coupons: spend points on coupons for each other (back rub, pick the movie), write your own.
+- Your own questions: each adds questions only they would ask, mixed in with the 40.
+- Said no: secret letter at Soulmates. Skip: drawing pad (not screen-reader friendly), synced music.
 
 ## Where it lives
 

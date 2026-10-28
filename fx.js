@@ -43,6 +43,7 @@ const SOUNDS = {
   point: () => play([[659, 0, 0.2], [988, 0.1, 0.4]], { type: 'triangle', vol: 0.18 }),      // a point
   fanfare: () => play([[523, 0, 0.25], [659, 0.15, 0.25], [784, 0.3, 0.25], [1047, 0.45, 0.8], [784, 0.45, 0.8]], { type: 'triangle', vol: 0.15 }), // new title / finish
   womp: () => play([[392, 0, 0.3], [330, 0.22, 0.5]], { type: 'triangle', vol: 0.12 }),      // a missed guess
+  heart: () => play([[659, 0, 0.4], [880, 0.14, 0.6]], { vol: 0.1 }),                       // thinking of you (soft)
   nudge: () => play([[330, 0, 0.12], [330, 0.15, 0.12], [440, 0.3, 0.25]], { type: 'square', vol: 0.06 }), // MSN-ish buzz
 };
 export function sfx(name) { SOUNDS[name]?.(); }
@@ -87,6 +88,11 @@ function overlay(className, html, ms) {
 export function letter() {
   if (calm()) return;
   overlay('fx-letter', '<img src="assets/letter.png" alt=""><span class="fx-spark s1">✨</span><span class="fx-spark s2">💗</span><span class="fx-spark s3">✨</span>', 1700);
+}
+// A big heart floats up the middle of the screen (thinking of you).
+export function floatHeart() {
+  if (calm()) return;
+  overlay('fx-heart', '<img src="assets/heart.png" alt="">', 2400);
 }
 // "New title unlocked" card.
 export function titleCard(title) {

@@ -1,9 +1,9 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=12';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=12';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=12';
-import * as fx from './fx.js?v=12';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=13';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=13';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=13';
+import * as fx from './fx.js?v=13';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -41,11 +41,13 @@ function blank() {
     reactions: {}, // reactions[q][who] = reaction id that who gave to the other's answer
     rapid: {},     // rapid[q][who] = [0|1, 0|1, 0|1]
     chat: [],      // { id, who, text, at } or { id, who, nudge: true, at }
+    goals: {},     // goals[who] = { text, done, at }: each player's study goal for the session
   };
 }
 let S = load() || blank();
 for (const k of ['chars', 'reactions', 'rapid']) S[k] ||= k === 'chars' ? { a: '', b: '' } : {};
 S.chat ||= [];
+S.goals ||= {};
 if (!('q' in S.shared)) S.shared = { v: S.shared.v + 1, phase: 'idle', q: null, popAt: null };
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; }
@@ -192,7 +194,7 @@ function send(msg) {
   if (conn && sock && sock.readyState === 1) sock.send(JSON.stringify(packVoice({ ...msg, from: S.me })));
 }
 async function sendFull() {
-  send({ t: 'full', shared: S.shared, answers: S.answers, judged: S.judged, reactions: S.reactions, rapid: S.rapid, chat: S.chat, voices: await vKeys() });
+  send({ t: 'full', goal: S.goals[S.me], shared: S.shared, answers: S.answers, judged: S.judged, reactions: S.reactions, rapid: S.rapid, chat: S.chat, voices: await vKeys() });
 }
 function mergeMap(mine, theirs, onNew) {
   for (const [q, byWho] of Object.entries(theirs || {}))
@@ -211,6 +213,7 @@ async function handle(d) {
     if (d.char) S.chars[from] = d.char;
     bump(from);
   } else if (d.t === 'full') {
+    if (d.goal) S.goals[from] = d.goal;
     applyShared(d.shared, from);
     mergeMap(S.answers, d.answers, (q, w) => { if (w === from) announcePartnerAnswer(q); });
     mergeMap(S.judged, d.judged);
@@ -252,6 +255,12 @@ async function handle(d) {
     gotNudge();
   } else if (d.t === 'nudgeReply') {
     gotNudgeReply(d.r);
+  } else if (d.t === 'goal') {
+    if (d.goal) gotGoal(d.goal);
+  } else if (d.t === 'cheer') {
+    gotCheer();
+  } else if (d.t === 'heart') {
+    gotHeart();
   } else if (d.t === 'rapid') {
     S.rapid[d.q] ||= {};
     S.rapid[d.q][from] = d.picks;
@@ -509,8 +518,166 @@ function nudgeBtnHtml() {
   return `${nudgeBack ? `<p class="taunt" role="status">${esc(nudgeBack)}</p>` : ''}
     ${nudgeResting()
       ? `<button type="button" class="ghost" disabled>Nudge sent 💌</button>`
-      : `<button id="nudge" type="button" class="ghost">I'm bored, talk to me 💌</button>`}`;
+      : `<button id="nudge" type="button" class="ghost">I'm bored, talk to me 💌</button>`}
+    ${heartResting()
+      ? `<button type="button" class="ghost" disabled>Heart sent 💗</button>`
+      : `<button id="heart" type="button" class="ghost">Thinking of you 💗</button>`}`;
 }
+
+// ---------- thinking-of-you hearts, study goals, mic check, keep awake ----------
+
+// A quiet heart: floats up on the partner's screen with a soft sound. No buzz, no focus move.
+const HEART_REST_MS = 5000;
+let heartSentAt = 0;
+const heartResting = () => Date.now() - heartSentAt < HEART_REST_MS;
+function sendHeart() {
+  if (!together() || heartResting()) return;
+  heartSentAt = Date.now();
+  send({ t: 'heart' });
+  fx.floatHeart();
+  announce(`Heart sent. ${partnerName()} knows you are thinking of them.`);
+  setTimeout(() => render(true), HEART_REST_MS);
+  render(true);
+}
+function gotHeart() {
+  fx.floatHeart();
+  fx.sfx('heart');
+  bump(other(S.me));
+  announce(`💗 ${partnerName()} is thinking of you.`);
+}
+
+// Each player sets a study goal. Ticking it off makes the partner's screen cheer, and they can cheer back.
+let goalDraft = null;   // my goal while I am typing it, so a redraw does not wipe it
+let goalEditing = false;
+let cheeredAt = 0;      // the partner's finished goal I already cheered (its time stamp)
+function setGoal(text) {
+  S.goals[S.me] = { text, done: false, at: Date.now() };
+  goalDraft = null;
+  goalEditing = false;
+  send({ t: 'goal', goal: S.goals[S.me] });
+  save();
+  announce(`Goal set: ${text}.`);
+  render(true);
+}
+function goalDone() {
+  const g = S.goals[S.me];
+  if (!g || g.done) return;
+  g.done = true;
+  g.at = Date.now();
+  send({ t: 'goal', goal: g });
+  save();
+  celebrate('small');
+  fx.sfx('point');
+  bump(S.me);
+  announce(`Goal done: ${g.text}. Well done!`);
+  render(true);
+}
+function gotGoal(goal) {
+  const from = other(S.me);
+  const was = S.goals[from];
+  S.goals[from] = goal;
+  if (goal.done && !was?.done) {
+    celebrate('reveal');
+    fx.sfx('fanfare');
+    bump(from);
+    announce(`${partnerName()} finished their goal: ${goal.text}. Cheer them on!`);
+  } else if (!goal.done && was?.text !== goal.text) {
+    announce(`${partnerName()} set a study goal: ${goal.text}.`);
+  }
+}
+function sendCheer() {
+  const g = S.goals[other(S.me)];
+  if (!together() || !g?.done) return;
+  cheeredAt = g.at;
+  send({ t: 'cheer' });
+  hearts(true);
+  announce(`You cheered ${partnerName()} on.`);
+  render(true);
+}
+function gotCheer() {
+  celebrate('small');
+  fx.sfx('sparkle');
+  bump(other(S.me));
+  announce(`${partnerName()} cheers you on! 🎉`);
+}
+function goalsHtml() {
+  const mine = S.goals[S.me];
+  const theirs = S.goals[other(S.me)];
+  const me = !mine || goalEditing
+    ? `<form id="goalForm" class="rename"><label for="goalInput">Your study goal</label>
+        <input id="goalInput" maxlength="80" placeholder="Finish chapter 3" value="${esc(goalDraft ?? mine?.text ?? '')}">
+        <button type="submit" class="ghost">Set goal</button></form>`
+    : `<p>${mine.done ? '✅' : '🎯'} Your goal: ${esc(mine.text)}${mine.done ? ' (done)' : ''}</p>
+        ${mine.done ? '' : `<button id="goalDone" type="button">I did it ✅</button>`}
+        <button id="goalChange" type="button" class="ghost">${mine.done ? 'New goal' : 'Change goal'}</button>`;
+  const them = theirs
+    ? `<p>${theirs.done ? '✅' : '🎯'} ${esc(partnerName())}'s goal: ${esc(theirs.text)}${theirs.done ? ' (done)' : ''}</p>
+        ${theirs.done && together() && cheeredAt !== theirs.at ? `<button id="cheer" type="button" class="ghost">Cheer 🎉</button>` : ''}`
+    : `<p class="meta">${esc(partnerName())} has not set a goal yet.</p>`;
+  return `<div class="goals"><h3>Study goals</h3>${me}${them}</div>`;
+}
+
+// Record 3 seconds and play it straight back, so a voice note never fails in the middle of a question.
+let micBusy = false;
+async function micCheck() {
+  if (micBusy || recorder) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { announce('This browser cannot record voice notes.'); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    announce('The microphone is blocked. Allow it in the browser settings, then try again.');
+    return;
+  }
+  micBusy = true;
+  render(true);
+  let url = '';
+  let safety = null;
+  const end = (msg) => {
+    if (!micBusy) return;
+    clearTimeout(safety);
+    stream.getTracks().forEach((t) => t.stop());
+    if (url) URL.revokeObjectURL(url);
+    micBusy = false;
+    announce(msg);
+    render(true);
+  };
+  safety = setTimeout(() => end('The mic check got stuck. Try again.'), 15000);
+  try {
+    const chunks = [];
+    const rec = new MediaRecorder(stream);
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onstop = () => {
+      if (!chunks.length) { end('The microphone sent no sound. Check it is plugged in and allowed.'); return; }
+      url = URL.createObjectURL(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
+      const audio = new Audio(url);
+      audio.onended = () => end('Mic check done. If you heard yourself, voice notes work.');
+      audio.onerror = () => end('Could not play the mic check back.');
+      audio.play().catch(() => end('Could not play the mic check back.'));
+    };
+    rec.start();
+    announce('Mic check: say something now.');
+    setTimeout(() => rec.state !== 'inactive' && rec.stop(), 3000);
+  } catch {
+    end('Could not start the microphone. Try again.');
+  }
+}
+
+// Keep a phone screen on while the game is open, so the phone does not lock and pause the game.
+let wakeLock = null;
+async function keepAwake() {
+  if (wakeLock || !S.room || document.hidden || !navigator.wakeLock) return;
+  wakeLock = 'asking';
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch {
+    wakeLock = null;
+  }
+}
+document.addEventListener('visibilitychange', keepAwake);
+document.addEventListener('pointerdown', keepAwake);
+document.addEventListener('keydown', keepAwake);
 
 // ---------- chat ----------
 
@@ -769,7 +936,8 @@ function render(force) {
   const sh = S.shared;
   const key = [view, S.room, sh.v, JSON.stringify(S.answers[sh.q] || {}), JSON.stringify(S.judged), JSON.stringify(S.reactions[sh.q] || {}),
     JSON.stringify(S.rapid[sh.q] || {}), !!recorder, !!draft.voice, S.names.a, S.names.b, S.chars.a, S.chars.b, score('a'), score('b'), tauntText,
-    together(), longWait(), nudgeIn?.at, nudgeResting(), nudgeBack].join('|');
+    together(), longWait(), nudgeIn?.at, nudgeResting(), nudgeBack, heartResting(), JSON.stringify(S.goals), goalEditing, cheeredAt,
+    micBusy].join('|');
   if (!force && key === lastKey) return;
   lastKey = key;
   // Keep keyboard / screen-reader focus where it was when the page redraws under the user.
@@ -913,7 +1081,7 @@ function gameView() {
       <h2>Ready when you are</h2>
       ${scoreBar()}${statusLine()}${waitingHtml()}
       <button id="start" type="button">Start studying</button>
-      ${nudgeBtnHtml()}
+      ${nudgeBtnHtml()}${goalsHtml()}
       <p class="meta">Questions pop up on both laptops at random, every ${GAP_MIN} to ${GAP_MAX} minutes, while you are both here. Either of you can start.</p>
     </section>`;
   } else if (sh.phase === 'study') {
@@ -923,6 +1091,7 @@ function gameView() {
       ${together()
         ? `<p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>${nudgeBtnHtml()}`
         : `<p class="big">Questions are paused until ${esc(partnerName())} is back.</p>${waitingHtml()}`}
+      ${goalsHtml()}
     </section>`;
   } else if (sh.phase === 'question') {
     body = questionView();
@@ -931,6 +1100,7 @@ function gameView() {
       <h2>You finished all 40 questions</h2>
       ${scoreBar()}
       <p>Final score: ${esc(meName())} ${score(S.me)}, ${esc(partnerName())} ${score(other(S.me))}. Together: ${esc(teamTitle())}.</p>
+      ${leaderboardHtml()}
       <button id="openBook" type="button">Open the memory book</button>
     </section>`;
   }
@@ -939,8 +1109,26 @@ function gameView() {
     <form id="renameForm" class="rename"><label for="myName">Your name</label>
       <input id="myName" autocomplete="nickname" maxlength="40" value="${esc(nameDraft ?? S.names[S.me])}">
       <button type="submit" class="ghost">Save name</button></form>
+    ${micBusy ? `<button type="button" class="ghost" disabled>Mic check: listening… 🎙️</button>`
+      : `<button id="micCheck" type="button" class="ghost">Mic check 🎙️</button>`}
     <button id="leave" class="ghost" type="button">Leave game</button>
     <p class="meta">Game code: <span class="code">${esc(S.room)}</span></p></div>`;
+}
+
+// End of the game: who guessed the other better. Just the board and the confetti, no prize.
+function leaderboardHtml() {
+  const row = (who) => {
+    const marks = Object.values(S.judged).map((byWho) => byWho[who]).filter((v) => v !== undefined);
+    return { who, right: marks.filter(Boolean).length, total: marks.length, pts: score(who) };
+  };
+  const rows = [row(S.me), row(other(S.me))].sort((x, y) => y.right - x.right || y.pts - x.pts);
+  const tie = rows[0].right === rows[1].right;
+  const matched = Object.keys(S.rapid).reduce((n, q) => n + rapidMatches(+q), 0);
+  return `<div class="board"><h3>Who knows who better</h3>
+    <ol>${rows.map((r, i) => `<li>${i === 0 && !tie ? '👑 ' : ''}${faceImg(r.who, 'chat-face')} <strong>${esc(nameOf(r.who))}</strong>:
+      guessed right ${r.right} of ${r.total}, ${r.pts} points</li>`).join('')}</ol>
+    <p>${tie ? 'A tie! You know each other equally well.' : `${esc(nameOf(rows[0].who))} knows ${esc(nameOf(rows[1].who))} best.`}
+      Rapid fire: ${matched} picks matched.</p></div>`;
 }
 
 function rapidHtml(q) {
@@ -1121,6 +1309,21 @@ function wire() {
   on('closeBook', () => { view = 'game'; focusHeading = true; render(true); });
   on('export', exportBook);
   on('nudge', sendNudge);
+  on('heart', sendHeart);
+  on('cheer', sendCheer);
+  on('goalDone', goalDone);
+  on('goalChange', () => { goalEditing = true; goalDraft = null; render(true); $('#goalInput')?.focus(); });
+  on('micCheck', micCheck);
+  const goalInput = $('#goalInput');
+  if (goalInput) {
+    goalInput.oninput = () => { goalDraft = goalInput.value; };
+    $('#goalForm').onsubmit = (e) => {
+      e.preventDefault();
+      const text = goalInput.value.trim();
+      if (!text) { announce('Type a goal first.'); return; }
+      setGoal(text);
+    };
+  }
   document.querySelectorAll('[data-nudge]').forEach((b) => { b.onclick = () => replyNudge(b.dataset.nudge); });
   on('dismissJoin', () => { joinPrompt = false; stripJoin(); startSync(); focusHeading = true; render(true); });
   on('switchGame', () => {
@@ -1223,5 +1426,6 @@ hearts(false);
 wireChat();
 if (joinPrompt) focusHeading = true; // the invite question gets screen-reader focus first
 render(true);
+keepAwake();
 if (S.room && !joinPrompt) startSync(); // wait for the answer before taking this seat (it would bump the other window)
 setInterval(() => { tick(); render(); }, 500);
