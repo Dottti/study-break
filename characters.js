@@ -20,7 +20,7 @@ export const charById = (id) => CHARACTERS.find((c) => c.id === id) || CHARACTER
 // Titles you earn together as the points grow. A full game is roughly 800 to 1,200 points together
 // (about 16 per question just for answering, plus guesses and rapid fire), so the ladder runs to the last questions.
 export const TITLES = [
-  [0, 'Strangers at the library'],
+  [0, 'Study and cuddles'],
   [40, 'Study buddies'],
   [110, 'Lab partners'],
   [200, 'Coffee date regulars'],

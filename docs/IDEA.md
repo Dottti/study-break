@@ -112,7 +112,7 @@ Level 3: close (31 to 40)
 - Choose your character at the start, 14 characters from Bunny (cute 10/10) down to Mr. Poop (0/10). Each player picks
   one and a name. Partner's character shows in the top bar, the score bar and the answer cards.
 - Points: lock in an answer 5, the singing dare 10, both answer the same question 3 more each, partner judges your
-  guess right 10. Team titles as the total grows: Strangers at the library, Study buddies, Lab partners, Partners in
+  guess right 10. Team titles as the total grows: Study and cuddles, Study buddies, Lab partners, Partners in
   crime, Soulmates.
 - Voice only on one question, number 21: "Sing me a few lines of a song that reminds you of me." Every other question
   is typed. Two questions reworded to typed ones (nickname for me; sweetest thing you can say).
