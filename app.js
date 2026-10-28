@@ -1,8 +1,8 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=8';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=8';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=8';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=9';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=9';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=9';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -238,6 +238,10 @@ async function handle(d) {
     S.reactions[d.q][from] = d.r;
     const r = reactionById(d.r);
     if (r) { announce(`${partnerName()} reacted to your answer: ${r.name}.`); bump(from); }
+  } else if (d.t === 'nudge') {
+    gotNudge();
+  } else if (d.t === 'nudgeReply') {
+    gotNudgeReply(d.r);
   } else if (d.t === 'rapid') {
     S.rapid[d.q] ||= {};
     S.rapid[d.q][from] = d.picks;
@@ -337,7 +341,7 @@ function askNotify() {
 function setTabTitle() {
   const sh = S.shared;
   const waiting = sh.phase === 'question' && !S.answers[sh.q]?.[S.me];
-  document.title = waiting ? '💕 Pop! Study Break' : 'Study Break';
+  document.title = nudgeIn ? '💌 Nudge! Study Break' : waiting ? '💕 Pop! Study Break' : 'Study Break';
 }
 function chime(up) {
   if (!soundOn) return;
@@ -419,6 +423,88 @@ function taunt(who, event) {
   tauntTimer = setTimeout(() => { tauntText = ''; render(true); }, 7000);
   if (who !== S.me) setTimeout(() => announce(tauntFor(S.chars[who], event)), 1500);
   render(true);
+}
+
+// ---------- nudges ----------
+
+// "I'm bored, talk to me": a ping to the partner's screen with quick replies.
+const NUDGE_REPLIES = [
+  { id: 'coming', text: 'Coming! 💕' },
+  { id: 'five', text: 'Give me 5 more minutes' },
+  { id: 'study', text: 'Study, you! 📚' },
+  { id: 'pop', text: 'Pop a question now' }, // only while studying: brings the next question early for both
+];
+const NUDGE_REST_MS = 30000; // one nudge per 30 s, so it stays a nudge and not a siren
+let nudgeIn = null;   // a nudge from the partner, waiting for my reply
+let nudgeSentAt = 0;
+let nudgeBack = '';   // the partner's reply to my nudge, shown for a little while
+let nudgeBackTimer = null;
+let focusNudge = false;
+const nudgeResting = () => Date.now() - nudgeSentAt < NUDGE_REST_MS;
+
+function sendNudge() {
+  if (!together() || nudgeResting()) return;
+  nudgeSentAt = Date.now();
+  nudgeBack = '';
+  send({ t: 'nudge' });
+  bump(S.me);
+  announce(`Nudge sent. ${partnerName()} knows you are bored.`);
+  setTimeout(() => render(true), NUDGE_REST_MS);
+  render(true);
+}
+function gotNudge() {
+  nudgeIn = { at: Date.now() };
+  chime(true);
+  notify('Study Break', `${partnerName()} is bored. Talk to me!`);
+  hearts(true);
+  bump(other(S.me));
+  announce(`${partnerName()} nudged you: I'm bored, talk to me! Reply buttons are at the top.`);
+  // Move focus to the nudge, unless they are typing an answer.
+  const t = document.activeElement?.tagName;
+  focusNudge = t !== 'TEXTAREA' && t !== 'INPUT';
+}
+function replyNudge(id) {
+  const r = NUDGE_REPLIES.find((x) => x.id === id);
+  nudgeIn = null;
+  if (r) {
+    send({ t: 'nudgeReply', r: id });
+    announce(`You replied: ${r.text}`);
+    if (id === 'pop') popNow();
+  } else {
+    announce('Nudge dismissed.');
+  }
+  render(true);
+}
+function gotNudgeReply(id) {
+  const r = NUDGE_REPLIES.find((x) => x.id === id);
+  if (!r) return;
+  nudgeBack = `${faceOf(other(S.me))} ${partnerName()}: ${r.text}`;
+  bump(other(S.me));
+  if (id !== 'pop') announce(`${partnerName()} replied: ${r.text}`);
+  clearTimeout(nudgeBackTimer);
+  nudgeBackTimer = setTimeout(() => { nudgeBack = ''; render(true); }, 15000);
+}
+function popNow() {
+  if (S.shared.phase !== 'study') return;
+  const q = answeredCount();
+  if (q >= TOTAL) setShared({ phase: 'done', q: null, popAt: null });
+  else setShared({ phase: 'question', q, popAt: null, revealAt: null });
+}
+function nudgeInHtml() {
+  if (!nudgeIn) return '';
+  const replies = NUDGE_REPLIES.filter((r) => r.id !== 'pop' || S.shared.phase === 'study');
+  return `<div class="nudge" role="group" aria-labelledby="nudgeHead">
+    <h3 id="nudgeHead" tabindex="-1">💌 ${avatar(other(S.me))} ${esc(partnerName())} is bored: talk to me!</h3>
+    ${replies.map((r) => `<button type="button" data-nudge="${r.id}"${r.id === 'coming' ? '' : ' class="ghost"'}>${esc(r.text)}</button>`).join('')}
+    <button type="button" data-nudge="dismiss" class="ghost">Dismiss</button>
+  </div>`;
+}
+function nudgeBtnHtml() {
+  if (!together()) return '';
+  return `${nudgeBack ? `<p class="taunt" role="status">${esc(nudgeBack)}</p>` : ''}
+    ${nudgeResting()
+      ? `<button type="button" class="ghost" disabled>Nudge sent 💌</button>`
+      : `<button id="nudge" type="button" class="ghost">I'm bored, talk to me 💌</button>`}`;
 }
 
 // ---------- answering ----------
@@ -557,7 +643,7 @@ function render(force) {
   const sh = S.shared;
   const key = [view, S.room, sh.v, JSON.stringify(S.answers[sh.q] || {}), JSON.stringify(S.judged), JSON.stringify(S.reactions[sh.q] || {}),
     JSON.stringify(S.rapid[sh.q] || {}), !!recorder, !!draft.voice, S.names.a, S.names.b, S.chars.a, S.chars.b, score('a'), score('b'), tauntText,
-    together(), longWait()].join('|');
+    together(), longWait(), nudgeIn?.at, nudgeResting(), nudgeBack].join('|');
   if (!force && key === lastKey) return;
   lastKey = key;
   // Keep keyboard / screen-reader focus where it was when the page redraws under the user.
@@ -569,7 +655,10 @@ function render(force) {
   else main.innerHTML = gameView();
   wire();
   loadAudio();
-  if (focusHeading) {
+  if (focusNudge && $('#nudgeHead')) {
+    focusNudge = false;
+    $('#nudgeHead').focus();
+  } else if (focusHeading) {
     focusHeading = false;
     const h = main.querySelector('h2');
     if (h) { h.tabIndex = -1; h.focus(); }
@@ -686,6 +775,7 @@ function gameView() {
       <h2>Ready when you are</h2>
       ${scoreBar()}${statusLine()}${waitingHtml()}
       <button id="start" type="button">Start studying</button>
+      ${nudgeBtnHtml()}
       <p class="meta">Questions pop up on both laptops at random, every ${GAP_MIN} to ${GAP_MAX} minutes, while you are both here. Either of you can start.</p>
     </section>`;
   } else if (sh.phase === 'study') {
@@ -693,7 +783,7 @@ function gameView() {
       <h2>Studying</h2>
       ${scoreBar()}${statusLine()}
       ${together()
-        ? `<p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>`
+        ? `<p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>${nudgeBtnHtml()}`
         : `<p class="big">Questions are paused until ${esc(partnerName())} is back.</p>${waitingHtml()}`}
     </section>`;
   } else if (sh.phase === 'question') {
@@ -707,7 +797,7 @@ function gameView() {
     </section>`;
   }
   const extra = sh.phase !== 'done' ? `<button id="openBook" class="ghost" type="button">Memory book</button>` : '';
-  return body + `<div class="extra">${extra}
+  return nudgeInHtml() + body + `<div class="extra">${extra}
     <button id="leave" class="ghost" type="button">Leave game</button>
     <p class="meta">Game code: <span class="code">${esc(S.room)}</span></p></div>`;
 }
@@ -889,6 +979,8 @@ function wire() {
   on('openBook', () => { view = 'book'; focusHeading = true; render(true); });
   on('closeBook', () => { view = 'game'; focusHeading = true; render(true); });
   on('export', exportBook);
+  on('nudge', sendNudge);
+  document.querySelectorAll('[data-nudge]').forEach((b) => { b.onclick = () => replyNudge(b.dataset.nudge); });
   on('dismissJoin', () => { joinPrompt = false; stripJoin(); startSync(); focusHeading = true; render(true); });
   on('switchGame', () => {
     try { localStorage.removeItem(KEY); } catch {}

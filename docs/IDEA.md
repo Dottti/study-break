@@ -177,6 +177,11 @@ Level 3: close (31 to 40)
   explains to send it on (or use a private window to test alone); a different game offers Join or Stay. The seat only
   connects after that answer, so it never bumps the other window.
 
+- v9 (2026-10-28): nudge (his idea). "I'm bored, talk to me 💌" button while idle or studying, when both are here.
+  The partner gets the chime, a notification, hearts, tab title "💌 Nudge!", focus on the nudge (unless typing), and
+  quick replies: Coming!, Give me 5 more minutes, Study you!, Pop a question now (brings the next question early for
+  both), Dismiss. The reply shows on the sender's screen for 15 s. One nudge per 30 s. Tested as two players.
+
 ## Where it lives
 
 Live link (send this to her): https://dottti.github.io/study-break/
