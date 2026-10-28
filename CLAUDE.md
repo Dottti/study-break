@@ -9,8 +9,13 @@ Read `docs/IDEA.md` first. It has every decision, the version log, and the open 
 
 - Plain HTML + JS, no build step. Files: `index.html`, `app.js` (all logic), `questions.js` (the 40),
   `characters.js` (14 characters + team titles), `extras.js` (reactions, rapid fire, trash talk), `style.css`.
-- Sync is direct laptop to laptop with PeerJS (loaded from jsDelivr). No server, no accounts. Each laptop keeps its own
-  copy in localStorage; voice notes in IndexedDB.
+- Sync goes through a tiny relay on Railway (`relay/`, project `study-break`, service `relay`,
+  wss://relay-production-6e27.up.railway.app). It forwards messages between the two players of a game code, stores
+  nothing, and tells each side when the other is here. Sleeps when idle (wakes in seconds). Each laptop keeps its own
+  copy in localStorage; voice notes in IndexedDB. Test against a local relay: `cd relay && PORT=8743 node server.js`,
+  then add `&relay=ws://localhost:8743` to the test links.
+- Deploy the relay only when `relay/` changes: `cd relay && railway up --ci --service relay` (check `railway status`
+  says study-break first: the parent Documents folder is linked to Luna).
 - Flow: pick character + name, create game (5-letter code) or join, Start studying once. A question pops up at random
   every 3 to 10 minutes. Both answer privately, then both answers show. Reveal stays 3 minutes or Back to studying.
 
@@ -34,5 +39,4 @@ Read `docs/IDEA.md` first. It has every decision, the version log, and the open 
 
 ## Not done yet
 
-Real two-laptop test across two networks, a TURN relay (PeerJS's own is dead; slot is `TURN` in app.js), real
-microphone test, question packs, the $1.99 version. See `docs/IDEA.md`.
+Real two-laptop test (Mac + her Windows), real microphone test, question packs, the $1.99 version. See `docs/IDEA.md`.

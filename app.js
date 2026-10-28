@@ -1,8 +1,8 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
-// Sync is peer-to-peer (PeerJS). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=6';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=6';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=6';
+// Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=7';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=7';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=7';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -125,64 +125,67 @@ const vKey = (q, who) => `${q}-${who}`;
 
 // ---------- sync ----------
 
-let peer = null;
-let conn = null;
+// Both laptops connect to a small relay on Railway (relay/ in this repo). It passes messages between the two players
+// of a game, stores nothing, and tells each side when the other is here. Plain web traffic, so any wifi works.
+// The relay sleeps when nobody plays; the first connect wakes it in a few seconds.
+const RELAY = params.get('relay') || 'wss://relay-production-6e27.up.railway.app';
+let sock = null;
+let conn = null;      // { open: true } while the partner is connected too
 let connectedAt = 0;  // when the partner last connected
 let waitingSince = 0; // when this laptop started waiting for the partner
-const peerId = (who) => `studybreak-v1-${S.room}-${who}`;
 
-// PeerJS's own relay servers (turn.peerjs.com) no longer resolve, so strict networks (campus, office wifi) can block
-// the direct link. Put a TURN relay here (for example a free Metered.ca app) and those networks work too.
-const TURN = [];
-const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, ...TURN];
-
-function startPeer() {
-  if (peer || !S.room) return;
+function startSync() {
+  if (sock || !S.room) return;
   waitingSince = Date.now();
-  peer = new Peer(peerId(S.me), { debug: 0, config: { iceServers: ICE } });
-  peer.on('open', tryConnect);
-  peer.on('connection', setupConn);
-  peer.on('disconnected', () => setTimeout(() => peer && !peer.destroyed && peer.reconnect(), 3000));
-  peer.on('error', (e) => {
-    if (e.type === 'unavailable-id') {
-      connNote = 'Study Break is already open in another window. Use that one.';
-      renderConn();
-    } else if (e.type !== 'peer-unavailable') {
-      console.warn('peer error', e.type);
-    }
-  });
-  setInterval(heartbeat, 5000);
+  connectRelay();
 }
-// A closed laptop or tab can leave the connection looking open for a long time, so both sides ping every 5 seconds
-// and drop a connection that has gone quiet. Hidden tabs can be throttled to about one timer a minute, hence 75 s.
-const STALE_MS = 75000;
-let lastSeen = 0;
-// Closing or reloading the tab says goodbye right away, so the partner's questions pause at once.
-window.addEventListener('pagehide', () => send({ t: 'bye' }));
-function heartbeat() {
-  if (conn && conn.open && Date.now() - lastSeen > STALE_MS) conn.close();
-  send({ t: 'ping' });
-  tryConnect();
+function connectRelay() {
+  const ws = new WebSocket(`${RELAY}/?room=${encodeURIComponent(S.room)}&who=${S.me}`);
+  sock = ws;
+  ws.onmessage = (e) => {
+    let d;
+    try { d = JSON.parse(e.data); } catch { return; }
+    if (d.t === '_here') d.here ? partnerHere() : partnerGone();
+    else handle(unpackVoice(d));
+  };
+  ws.onclose = (e) => {
+    if (sock !== ws) return;
+    sock = null;
+    partnerGone();
+    if (e.code === 4001) { connNote = 'Study Break was opened in another window. Use that one.'; renderConn(); return; }
+    setTimeout(connectRelay, 3000);
+  };
 }
-function tryConnect() {
-  if (peer && peer.open && !(conn && conn.open)) setupConn(peer.connect(peerId(other(S.me)), { reliable: true }));
+function partnerHere() {
+  if (conn) return;
+  conn = { open: true };
+  connectedAt = Date.now();
+  send({ t: 'hello', name: S.names[S.me], char: S.chars[S.me] });
+  sendFull();
+  announce(`${partnerName()} is connected.`);
+  render(true);
 }
-function setupConn(c) {
-  c.on('open', () => {
-    const was = conn && conn.open;
-    conn = c;
-    lastSeen = Date.now();
-    send({ t: 'hello', name: S.names[S.me], char: S.chars[S.me] });
-    sendFull();
-    if (!was) { connectedAt = Date.now(); announce(`${partnerName()} is connected.`); renderConn(); render(true); }
-  });
-  c.on('data', handle);
-  c.on('close', () => {
-    if (conn === c) { conn = null; waitingSince = Date.now(); announce(`${partnerName()} left. Questions wait until you are both back.`); renderConn(); render(true); }
-  });
+function partnerGone() {
+  if (!conn) return;
+  conn = null;
+  waitingSince = Date.now();
+  announce(`${partnerName()} left. Questions wait until you are both back.`);
+  render(true);
+}
+// Voice notes travel as base64 text inside the JSON message.
+function packVoice(msg) {
+  if (!(msg.buf instanceof ArrayBuffer)) return msg;
+  const bytes = new Uint8Array(msg.buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { ...msg, buf: btoa(bin) };
+}
+function unpackVoice(d) {
+  if (d.t !== 'voice' || typeof d.buf !== 'string') return d;
+  return { ...d, buf: Uint8Array.from(atob(d.buf), (c) => c.charCodeAt(0)).buffer };
 }
 function send(msg) {
-  if (conn && conn.open) conn.send({ ...msg, from: S.me });
+  if (conn && sock && sock.readyState === 1) sock.send(JSON.stringify(packVoice({ ...msg, from: S.me })));
 }
 async function sendFull() {
   send({ t: 'full', shared: S.shared, answers: S.answers, judged: S.judged, reactions: S.reactions, rapid: S.rapid, voices: await vKeys() });
@@ -198,9 +201,6 @@ function mergeMap(mine, theirs, onNew) {
 async function handle(d) {
   const from = d.from;
   if (from !== other(S.me)) return;
-  lastSeen = Date.now();
-  if (d.t === 'ping') return;
-  if (d.t === 'bye') { if (conn) conn.close(); return; }
   if (d.t === 'hello') {
     if (d.name) S.names[from] = d.name;
     if (d.char) S.chars[from] = d.char;
@@ -532,7 +532,8 @@ let focusHeading = false;
 function renderConn() {
   const el = $('#conn');
   if (!S.room) { el.textContent = ''; return; }
-  el.textContent = connNote || (conn && conn.open ? `${faceOf(other(S.me))} ${partnerName()} is here` : `Waiting for ${partnerName()}. Game code ${S.room}`);
+  el.textContent = connNote || (conn && conn.open ? `${faceOf(other(S.me))} ${partnerName()} is here`
+    : sock && sock.readyState === 1 ? `Waiting for ${partnerName()}. Game code ${S.room}` : 'Connecting to the game...');
 }
 const together = () => !!(conn && conn.open);
 const longWait = () => !together() && waitingSince && Date.now() - waitingSince > 45000;
@@ -643,8 +644,8 @@ function statusLine() {
 function waitingHtml() {
   if (together()) return '';
   const tip = longWait()
-    ? `<p class="meta">Still not connected. Check that ${esc(partnerName())} opened the link or typed code ${esc(S.room)}.
-       Campus, school and office wifi can block the link between laptops: if it stays stuck, one of you joins from a phone hotspot.</p>`
+    ? `<p class="meta">Still not connected. Check that ${esc(partnerName())} opened the link or typed code ${esc(S.room)},
+       and that both laptops are online.</p>`
     : '';
   return `<div class="invite">
     <p>Waiting for ${esc(partnerName())}. Send this invite link:</p>
@@ -822,7 +823,7 @@ function wire() {
     S.chars.a = ch;
     S.room = Array.from(crypto.getRandomValues(new Uint32Array(5)), (x) => abc[x % abc.length]).join('');
     save();
-    startPeer();
+    startSync();
     focusHeading = true;
     hearts(true);
     render(true);
@@ -843,7 +844,7 @@ function wire() {
     save();
     askNotify();
     if (JOIN_CODE) history.replaceState(null, '', location.pathname + location.search.replace(/[?&]join=[^&]*/, '').replace(/^&/, '?'));
-    startPeer();
+    startSync();
     focusHeading = true;
     hearts(true);
     render(true);
@@ -942,5 +943,5 @@ setSound(soundOn);
 
 hearts(false);
 render(true);
-if (S.room) startPeer();
+if (S.room) startSync();
 setInterval(() => { tick(); render(); }, 500);

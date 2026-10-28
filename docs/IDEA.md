@@ -163,6 +163,15 @@ Level 3: close (31 to 40)
 - Tested as two players in fast mode: invite link join, pop-up, tab title, answer and reveal, pause on partner leave,
   long-wait tip, pop after the partner returns. No console errors.
 
+## v7 (2026-10-28): Railway relay
+
+- His call: run the connection through Railway instead of direct links. PeerJS removed. Both laptops connect to
+  `relay/` (Node + ws, ~60 lines): forwards messages per game code, stores nothing, only accepts the GitHub Pages and
+  localhost origins, newest window wins, pings every 15 s to notice closed laptops. Works on any wifi.
+- Sleeps when nobody plays (Railway serverless), so it costs cents. First connect after a sleep takes a few seconds.
+- Tested: two players through a local relay (join, pop-up, pause), a 1.5 MB voice note through the live relay byte
+  for byte, wrong-origin connection refused.
+
 ## Where it lives
 
 Live link (send this to her): https://dottti.github.io/study-break/
