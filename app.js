@@ -1,9 +1,9 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=13';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=13';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=13';
-import * as fx from './fx.js?v=13';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=14';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=14';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=14';
+import * as fx from './fx.js?v=14';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)

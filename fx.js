@@ -15,36 +15,44 @@ export function setSound(on) { soundOn = on; }
 export function unlock() {
   try { ctx ||= new AudioContext(); if (ctx.state === 'suspended') ctx.resume(); } catch {}
 }
-// notes: [frequency, start offset s, length s]
-function play(notes, { type = 'sine', vol = 0.2 } = {}) {
+// Every sound is a soft music-box chime: pure sine tones in the middle range (no square or buzzy waves, nothing
+// shrill above about 1,100 Hz), a gentle fade in so nothing clicks, a long soft fade out, and low volume.
+// notes: [frequency, start offset s, length s, glide-to frequency (optional)]
+function play(notes, { vol = 0.1 } = {}) {
   if (!soundOn) return;
   try {
     ctx ||= new AudioContext();
-    for (const [f, at, len] of notes) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
+    for (const [f, at, len, to] of notes) {
       const t0 = ctx.currentTime + at;
-      o.type = type;
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
-      o.connect(g).connect(ctx.destination);
-      o.start(t0);
-      o.stop(t0 + len + 0.05);
+      // The tone plus a quiet octave above it, like a little bell.
+      for (const [mult, gain] of [[1, 1], [2, 0.18]]) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(f * mult, t0);
+        if (to) o.frequency.exponentialRampToValueAtTime(to * mult, t0 + len * 0.6);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol * gain, t0 + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+        o.connect(g).connect(ctx.destination);
+        o.start(t0);
+        o.stop(t0 + len + 0.05);
+      }
     }
   } catch {}
 }
+// Notes from a C major pentatonic scale, so any two sounds that overlap still sound nice together.
+const C5 = 523, D5 = 587, E5 = 659, G5 = 784, A5 = 880, C6 = 1047, G4 = 392, E4 = 330;
 const SOUNDS = {
-  pop: () => play([[523, 0, 0.45], [784, 0.2, 0.55]], { vol: 0.25 }),                       // a question pops
-  back: () => play([[784, 0, 0.4], [523, 0.2, 0.5]], { vol: 0.2 }),                          // back to studying
-  blip: () => play([[880, 0, 0.18], [1175, 0.09, 0.2]], { vol: 0.15 }),                      // chat message
-  sparkle: () => play([[1047, 0, 0.3], [1319, 0.07, 0.3], [1568, 0.14, 0.35], [2093, 0.21, 0.5]], { type: 'triangle', vol: 0.12 }), // reveal
-  point: () => play([[659, 0, 0.2], [988, 0.1, 0.4]], { type: 'triangle', vol: 0.18 }),      // a point
-  fanfare: () => play([[523, 0, 0.25], [659, 0.15, 0.25], [784, 0.3, 0.25], [1047, 0.45, 0.8], [784, 0.45, 0.8]], { type: 'triangle', vol: 0.15 }), // new title / finish
-  womp: () => play([[392, 0, 0.3], [330, 0.22, 0.5]], { type: 'triangle', vol: 0.12 }),      // a missed guess
-  heart: () => play([[659, 0, 0.4], [880, 0.14, 0.6]], { vol: 0.1 }),                       // thinking of you (soft)
-  nudge: () => play([[330, 0, 0.12], [330, 0.15, 0.12], [440, 0.3, 0.25]], { type: 'square', vol: 0.06 }), // MSN-ish buzz
+  pop: () => play([[E5, 0, 0.6], [A5, 0.14, 0.8]], { vol: 0.11 }),                          // a question pops
+  back: () => play([[A5, 0, 0.5], [E5, 0.14, 0.7]], { vol: 0.08 }),                         // back to studying
+  blip: () => play([[G5, 0, 0.35, A5]], { vol: 0.06 }),                                     // chat message: a little bubble
+  sparkle: () => play([[G5, 0, 0.5], [A5, 0.09, 0.5], [C6, 0.18, 0.8]], { vol: 0.07 }),     // answers revealed
+  point: () => play([[C5, 0, 0.4], [G5, 0.1, 0.6]], { vol: 0.09 }),                          // a point
+  fanfare: () => play([[C5, 0, 0.5], [E5, 0.13, 0.5], [G5, 0.26, 0.5], [C6, 0.39, 1.1]], { vol: 0.08 }), // new title, goal done, the end
+  womp: () => play([[G4, 0, 0.6, E4]], { vol: 0.08 }),                                       // a missed guess: a soft "aww"
+  heart: () => play([[E5, 0, 0.7], [G5, 0.16, 1.0]], { vol: 0.06 }),                         // thinking of you
+  nudge: () => play([[D5, 0, 0.25, G5], [D5, 0.22, 0.25, G5], [C6, 0.46, 0.6]], { vol: 0.08 }), // nudge: "boop boop, ding"
 };
 export function sfx(name) { SOUNDS[name]?.(); }
 
