@@ -7,3 +7,5 @@ Plain HTML and JavaScript, no build step. Sync is peer to peer (PeerJS), so answ
 
 Run locally: `python3 -m http.server 8742`, then open http://localhost:8742
 Test mode: add `?fast` (minutes become seconds) and `&p=2` for a second player in the same browser.
+
+Character art: [Microsoft Fluent Emoji](https://github.com/microsoft/fluentui-emoji) (MIT). Confetti: canvas-confetti.

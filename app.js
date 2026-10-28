@@ -1,8 +1,9 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=11';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=11';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=11';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=12';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=12';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=12';
+import * as fx from './fx.js?v=12';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -227,15 +228,15 @@ async function handle(d) {
     announcePartnerAnswer(d.q);
     bump(from);
     if (QUESTIONS[d.q].dare) taunt(from, 'dare');
-    if (both(d.q)) hearts(true);
+    if (both(d.q)) { celebrate('reveal'); fx.sfx('sparkle'); flip(d.q); }
   } else if (d.t === 'voice') {
     await vPut(d.key, { mime: d.mime, buf: d.buf });
   } else if (d.t === 'judge') {
     S.judged[d.q] ||= {};
     S.judged[d.q][d.who] = d.val;
     if (d.who === S.me) {
-      if (d.val) { hearts(true); announce(`${partnerName()} says you guessed right. Plus ${guessPoints(S.me, d.q)} points for you.`); taunt(S.me, 'point'); }
-      else announce(`${partnerName()} says your guess missed. No points this time.`);
+      if (d.val) { celebrate('small'); fx.sfx('point'); announce(`${partnerName()} says you guessed right. Plus ${guessPoints(S.me, d.q)} points for you.`); taunt(S.me, 'point'); }
+      else { fx.sfx('womp'); bump(S.me, 'sad'); announce(`${partnerName()} says your guess missed. No points this time.`); }
     }
   } else if (d.t === 'react') {
     S.reactions[d.q] ||= {};
@@ -314,6 +315,8 @@ function onPhase() {
     const qq = QUESTIONS[sh.q];
     if (draftQ !== sh.q) { draft = { text: '', guess: '', voice: null }; rapidDraft = [null, null, null]; draftQ = sh.q; }
     chime(true);
+    fx.letter();
+    arrive();
     notify('Study Break', qq.text);
     announce(`Pop! Question ${sh.q + 1}${qq.dare ? ', a dare' : qq.spicy ? ', spicy one' : ''}${isRapidQ(sh.q) ? ', with rapid fire' : ''}: ${qq.text}`);
     focusHeading = true;
@@ -322,8 +325,8 @@ function onPhase() {
     announce('Back to studying. The next question will pop up when you least expect it.');
     focusHeading = true;
   } else if (sh.phase === 'done') {
-    chime(true);
-    hearts(true);
+    celebrate('big');
+    fx.sfx('fanfare');
     announce('You finished all 40 questions.');
     focusHeading = true;
   } else if (sh.phase === 'idle') {
@@ -333,15 +336,11 @@ function onPhase() {
 
 // ---------- sound, notifications, screen reader, hearts ----------
 
-let audioCtx = null;
 let soundOn = true;
 try { soundOn = localStorage.getItem('studybreak:sound') !== 'off'; } catch {}
 // Browsers keep sound muted until the page is clicked or typed in, so wake the audio on the first touch.
-function unlockAudio() {
-  try { audioCtx ||= new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch {}
-}
-document.addEventListener('pointerdown', unlockAudio);
-document.addEventListener('keydown', unlockAudio);
+document.addEventListener('pointerdown', fx.unlock);
+document.addEventListener('keydown', fx.unlock);
 function askNotify() {
   try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
 }
@@ -352,25 +351,7 @@ function setTabTitle() {
   document.title = nudgeIn ? '💌 Nudge! Study Break' : waiting ? '💕 Pop! Study Break'
     : chatUnread ? `💬 (${chatUnread}) Study Break` : 'Study Break';
 }
-function chime(up) {
-  if (!soundOn) return;
-  try {
-    audioCtx ||= new AudioContext();
-    const notes = up ? [523, 784] : [784, 523];
-    notes.forEach((f, i) => {
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      const t0 = audioCtx.currentTime + i * 0.22;
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t0);
-      o.stop(t0 + 0.55);
-    });
-  } catch {}
-}
+function chime(up) { fx.sfx(up ? 'pop' : 'back'); }
 function notify(title, body) {
   try {
     if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification(title, { body });
@@ -415,13 +396,25 @@ function hearts(burst) {
     box.appendChild(s);
   }
 }
-function bump(who) {
+// mood: 'bounce' (scored, reacted) or 'sad' (missed).
+function bump(who, mood = 'bounce') {
   document.querySelectorAll(`.avatar[data-who="${who}"]`).forEach((el) => {
-    el.classList.remove('bounce');
+    el.classList.remove('bounce', 'sad');
     void el.offsetWidth;
-    el.classList.add('bounce');
+    el.classList.add(mood);
   });
 }
+function celebrate(kind) {
+  hearts(true);
+  fx.confetti(kind);
+}
+// One-shot entrance animations: on for redraws in the next moment, then off so later redraws don't replay them.
+let arriveNext = false; // the question card slides in
+let flipNext = null;    // the answer cards for this question flip over
+let arriveTimer = null;
+let flipTimer = null;
+function arrive() { arriveNext = true; clearTimeout(arriveTimer); arriveTimer = setTimeout(() => { arriveNext = false; }, 1600); }
+function flip(q) { flipNext = q; clearTimeout(flipTimer); flipTimer = setTimeout(() => { flipNext = null; }, 1000); }
 // Trash talk from a character, shown to both players for a few seconds.
 let tauntText = '';
 let tauntTimer = null;
@@ -464,7 +457,8 @@ function sendNudge() {
 }
 function gotNudge() {
   nudgeIn = { at: Date.now() };
-  chime(true);
+  fx.sfx('nudge');
+  fx.shake();
   notify('Study Break', `${partnerName()} is bored. Talk to me!`);
   hearts(true);
   bump(other(S.me));
@@ -574,29 +568,12 @@ function gotTyping() {
   renderChat(true);
   setTimeout(() => renderChat(), 4100);
 }
-function blip() {
-  if (!soundOn) return;
-  try {
-    audioCtx ||= new AudioContext();
-    [880, 1175].forEach((f, i) => {
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      const t0 = audioCtx.currentTime + i * 0.09;
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t0);
-      o.stop(t0 + 0.2);
-    });
-  } catch {}
-}
+const blip = () => fx.sfx('blip');
 const chatTime = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 function chatLine(m) {
   const name = esc(nameOf(m.who));
   if (m.nudge) return `<li class="chat-nudge">💌 ${name} sent a nudge! <span class="chat-time">${chatTime(m.at)}</span></li>`;
-  return `<li class="chat-msg ${m.who === S.me ? 'mine' : 'theirs'}"><span class="chat-who">${faceOf(m.who)} ${name} says:</span>
+  return `<li class="chat-msg ${m.who === S.me ? 'mine' : 'theirs'}"><span class="chat-who">${faceImg(m.who, 'chat-face')} ${name} says:</span>
     <span class="chat-time">${chatTime(m.at)}</span><br><span class="chat-text">${esc(m.text)}</span></li>`;
 }
 function renderChat(force) {
@@ -703,7 +680,7 @@ async function submitAnswer() {
   send({ t: 'answer', q, answer });
   draft = { text: '', guess: '', voice: null };
   const got = qq.dare ? PTS_DARE : PTS_ANSWER;
-  if (both(q)) { hearts(true); announce(`Locked in. Plus ${got + PTS_TEAM} points. Answers are showing.`); }
+  if (both(q)) { celebrate('reveal'); fx.sfx('sparkle'); flip(q); announce(`Locked in. Plus ${got + PTS_TEAM} points. Answers are showing.`); }
   else announce(`Locked in. Plus ${got} points. Waiting for ${partnerName()}.`);
   if (qq.dare) taunt(S.me, 'dare');
   afterChange();
@@ -717,8 +694,8 @@ function judge(q, val) {
   S.judged[q] ||= {};
   S.judged[q][who] = val;
   send({ t: 'judge', q, who, val });
-  if (val) { hearts(true); announce(`${guessPoints(who, q)} points for ${partnerName()}.`); taunt(who, 'point'); }
-  else announce('No point this time.');
+  if (val) { celebrate('small'); fx.sfx('point'); announce(`${guessPoints(who, q)} points for ${partnerName()}.`); taunt(who, 'point'); }
+  else { bump(who, 'sad'); announce('No point this time.'); }
   afterChange();
   save();
   render(true);
@@ -747,7 +724,7 @@ function submitRapid() {
 }
 function rapidDone(q) {
   const m = rapidMatches(q);
-  if (m === 3) { hearts(true); announce(`Rapid fire: all three matched. ${PTS_RAPID * 3 + PTS_SWEEP} points each.`); taunt(S.me, 'sweep'); }
+  if (m === 3) { celebrate('big'); fx.sfx('fanfare'); announce(`Rapid fire: all three matched. ${PTS_RAPID * 3 + PTS_SWEEP} points each.`); taunt(S.me, 'sweep'); }
   else announce(`Rapid fire: ${m} of 3 matched. ${m * PTS_RAPID} points each.`);
 }
 
@@ -776,6 +753,7 @@ function checkTitle() {
   const t = teamTitle();
   if (shownTitle !== null && t !== shownTitle) {
     hearts(true);
+    fx.titleCard(t);
     setTimeout(() => announce(`New title together: ${t}.`), 2500);
   }
   shownTitle = t;
@@ -815,15 +793,17 @@ function render(force) {
   }
 }
 
+// 3D character art (Microsoft Fluent Emoji, MIT, in assets/). Text-only places keep the emoji from faceOf().
+const faceImg = (who, cls = 'face-img') => (S.chars[who] ? `<img class="${cls}" src="assets/${S.chars[who]}.png" alt="" draggable="false">` : '❔');
 function avatar(who) {
-  return `<span class="avatar" data-who="${who}" role="img" aria-label="${esc(S.chars[who] ? charById(S.chars[who]).name : 'no character yet')}">${faceOf(who)}</span>`;
+  return `<span class="avatar" data-who="${who}" role="img" aria-label="${esc(S.chars[who] ? charById(S.chars[who]).name : 'no character yet')}">${faceImg(who)}</span>`;
 }
 
 function setupView() {
   const chars = CHARACTERS.map((c, i) => `
     <label class="char">
       <input type="radio" name="char" value="${c.id}" ${i === 0 ? 'checked' : ''}>
-      <span class="face" aria-hidden="true">${c.emoji}</span>
+      <span class="face" aria-hidden="true"><img src="assets/${c.id}.png" alt="" draggable="false"></span>
       <span class="nm">${esc(c.name)}</span>
       <span class="cute">Cute: ${c.cute}/10</span>
       <span class="ln">${esc(c.line)}</span>
@@ -872,7 +852,17 @@ function scoreBar() {
 function statusLine() {
   const sh = S.shared;
   const n = sh.phase === 'question' ? sh.q + 1 : Math.min(answeredCount() + 1, TOTAL);
-  return `<p class="meta">Question ${n} of ${TOTAL}. Level: ${LEVELS[levelOf(n - 1)]}.</p>`;
+  const done = answeredCount();
+  const dots = (from, to) => Array.from({ length: to - from }, (_, i) => {
+    const q = from + i;
+    return `<span class="dot${q < done ? ' on' : ''}${q === n - 1 ? ' now' : ''}${QUESTIONS[q].dare ? ' dare' : ''}"></span>`;
+  }).join('');
+  return `<p class="meta">Question ${n} of ${TOTAL}. Level: ${LEVELS[levelOf(n - 1)]}.</p>
+    <div class="journey" aria-hidden="true">
+      <div class="leg"><span class="leg-name">Light</span><div class="dots">${dots(0, 15)}</div></div>
+      <div class="leg"><span class="leg-name">Deeper</span><div class="dots">${dots(15, 30)}</div></div>
+      <div class="leg"><span class="leg-name">Close</span><div class="dots">${dots(30, TOTAL)}</div></div>
+    </div>`;
 }
 
 // Shown while the partner is not connected: the invite link, and a tip if it takes long.
@@ -993,7 +983,7 @@ function questionView() {
     inner = revealHtml(q, true) + `<p class="meta">Studying resumes on its own in ${REVEAL_MIN} minutes, or press the button.</p>
       <button id="resume" type="button">Back to studying</button>`;
   }
-  return `<section>
+  return `<section${arriveNext ? ' class="arrive"' : ''}>
     <h2>Pop! Question ${q + 1}</h2>
     ${scoreBar()}${statusLine()}
     ${isRapidQ(q) ? rapidHtml(q) : ''}
@@ -1014,7 +1004,7 @@ function revealHtml(q, live) {
     if (got) reactHtml = `<p class="reaction">${reactionById(got)?.emoji || ''} ${esc(nameOf(other(who)))} reacted: ${esc(reactionById(got)?.name || got)}</p>`;
     else if (live && who === them) reactHtml = `<p class="meta">React to ${esc(partnerName())}'s answer:</p>` +
       REACTIONS.map((r) => `<button type="button" class="ghost react" data-react="${r.id}" aria-label="${esc(r.name)}">${r.emoji} ${esc(r.name)}</button>`).join('');
-    return `<article>
+    return `<article${live && flipNext === q ? ' class="flip"' : ''}>
       <h4>${avatar(who)} ${esc(nameOf(who))}</h4>
       ${a.text ? `<p>${esc(a.text)}</p>` : ''}
       ${a.voice ? `<audio controls data-key="${vKey(q, who)}" aria-label="Voice note from ${esc(nameOf(who))}"></audio>` : ''}
@@ -1198,6 +1188,7 @@ try { setCompact(!!localStorage.getItem(KEY + ':compact')); } catch {}
 const soundBtn = $('#sound');
 function setSound(onOff) {
   soundOn = onOff;
+  fx.setSound(onOff);
   soundBtn.textContent = onOff ? 'Sounds on' : 'Sounds off';
   soundBtn.setAttribute('aria-pressed', String(onOff));
   try { localStorage.setItem('studybreak:sound', onOff ? 'on' : 'off'); } catch {}

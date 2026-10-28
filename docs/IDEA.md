@@ -191,6 +191,13 @@ Level 3: close (31 to 40)
 - v11 (2026-10-28): her default name. Opening an invite link fills in "Dandoon (The-Don)" (she can change it).
   Creating a game leaves the name empty.
 
+- v12 (2026-10-28): the wow pass (his ask: animations, confetti, nice assets). 3D characters (Microsoft Fluent Emoji,
+  MIT, saved in assets/) that bob, hop on a point and droop on a miss; love-letter pop-up when a question arrives and
+  the card rises in; answer cards flip on reveal; confetti (canvas-confetti 1.9.3) on reveals, points, sweeps, the end;
+  "New title unlocked" card with a trophy; MSN nudge shake; 40-dot journey bar (Light, Deeper, Close); chat bubbles;
+  synthesized sounds (pop, sparkle, point, fanfare, womp, nudge buzz). All decoration is aria-hidden; announcements
+  unchanged. His Mac has Reduce motion on, so the game stays calm there; `?motion` forces animations for testing.
+
 ## Where it lives
 
 Live link (send this to her): https://dottti.github.io/study-break/

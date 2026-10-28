@@ -59,7 +59,7 @@ body {
   20% { opacity: 1; }
   100% { transform: translateY(-70vh) scale(1.4); opacity: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .hearts span { animation: none; display: none; } }
+@media (prefers-reduced-motion: reduce) { :root:not(.force-motion) .hearts span { animation: none; display: none; } }
 
 .top {
   position: relative; z-index: 1;
@@ -225,3 +225,104 @@ button.react { padding: 8px 12px; margin-right: 6px; }
 .chat-form input { flex: 1; min-width: 0; margin: 0; }
 .chat-form button { margin: 0; }
 main { padding-bottom: 80px; }
+
+/* ---------- v12: the wow pass ---------- */
+
+/* 3D characters: idle bob, jump on a point, droop on a miss. */
+.avatar { display: inline-block; line-height: 1; }
+.avatar img { width: 1.2em; height: 1.2em; display: block; filter: drop-shadow(0 4px 6px color-mix(in srgb, var(--ink) 18%, transparent)); }
+.scorebar .avatar img { animation: bob 3.4s ease-in-out infinite; }
+.scorebar .who:last-child .avatar img { animation-delay: -1.7s; }
+@keyframes bob { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-5px) rotate(2deg); } }
+.avatar.bounce { animation: hop .7s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes hop { 0% { transform: none; } 35% { transform: translateY(-14px) scale(1.25) rotate(-8deg); } 65% { transform: translateY(0) scale(.92, 1.08); } 100% { transform: none; } }
+.avatar.sad { animation: droop 1.2s ease; }
+@keyframes droop { 0%, 100% { transform: none; filter: none; } 30%, 70% { transform: translateY(4px) rotate(-10deg) scale(.92); filter: saturate(.4); } }
+
+/* Character picker: real cards with a lift and a happy wiggle when chosen. */
+.char .face img { width: 64px; height: 64px; display: block; margin: 0 auto; transition: transform .2s ease; }
+.char:hover .face img { transform: translateY(-3px) scale(1.06); }
+.char:has(input:checked) .face img { animation: wiggle .6s ease; }
+@keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-10deg) scale(1.12); } 60% { transform: rotate(8deg) scale(1.08); } }
+.chat-face { width: 16px; height: 16px; vertical-align: -3px; }
+.pair h4 .avatar img, .chat .avatar img { width: 34px; height: 34px; }
+
+/* Journey: 40 dots in three legs. */
+.journey { display: flex; gap: 10px; margin: -4px 0 14px; flex-wrap: wrap; }
+.leg { flex: 15 1 0; min-width: 120px; }
+.leg:last-child { flex-grow: 10; }
+.leg-name { display: block; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.dots { display: flex; gap: 3px; }
+.dot { flex: 1; height: 8px; border-radius: 99px; background: var(--line); transition: background .4s ease; }
+.dot.on { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+.dot.dare.on { background: var(--gold); }
+.dot.now { background: var(--accent2); animation: glow 1.6s ease-in-out infinite; }
+@keyframes glow { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent2) 35%, transparent); } }
+
+/* A question arrives: the card rises in after the letter opens. */
+section.arrive { animation: arrive .7s .9s cubic-bezier(.2, 1.3, .4, 1) both; }
+@keyframes arrive { 0% { opacity: 0; transform: translateY(40px) scale(.94); } 100% { opacity: 1; transform: none; } }
+.question { position: relative; }
+
+/* The reveal: both answer cards flip over. */
+.pair { perspective: 900px; }
+.pair article.flip { animation: flip .8s cubic-bezier(.2, .9, .3, 1.2) both; transform-origin: center; }
+.pair article.flip + article.flip { animation-delay: .18s; }
+@keyframes flip { 0% { transform: rotateY(95deg) scale(.9); opacity: 0; } 60% { opacity: 1; } 100% { transform: none; opacity: 1; } }
+
+/* Overlays from fx.js. */
+.fx { position: fixed; inset: 0; pointer-events: none; z-index: 60; display: grid; place-items: center; }
+.fx-letter { background: radial-gradient(circle at center, color-mix(in srgb, var(--accent2) 30%, transparent), transparent 60%); animation: fade 1.7s ease forwards; }
+.fx-letter img { width: 150px; height: 150px; animation: letter 1.5s cubic-bezier(.3, 1.4, .5, 1) forwards; filter: drop-shadow(0 12px 24px color-mix(in srgb, var(--accent) 40%, transparent)); }
+@keyframes letter {
+  0% { transform: translate(-40vw, 40vh) rotate(-40deg) scale(.4); opacity: 0; }
+  40% { transform: translate(0, 0) rotate(8deg) scale(1.1); opacity: 1; }
+  52% { transform: rotate(-8deg) scale(1.1); }
+  64% { transform: rotate(5deg) scale(1.15); }
+  80% { transform: scale(1.35); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.fx-spark { position: absolute; font-size: 34px; opacity: 0; animation: spark 1.2s .6s ease-out forwards; }
+.fx-spark.s1 { --dx: -110px; --dy: -80px; }
+.fx-spark.s2 { --dx: 0px; --dy: -130px; }
+.fx-spark.s3 { --dx: 110px; --dy: -70px; }
+@keyframes spark { 0% { transform: translate(0, 0) scale(.3); opacity: 0; } 30% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(1.3); opacity: 0; } }
+@keyframes fade { 0% { opacity: 0; } 15%, 75% { opacity: 1; } 100% { opacity: 0; } }
+
+.fx-title { background: color-mix(in srgb, var(--bg) 55%, transparent); backdrop-filter: blur(3px); animation: fade 3.4s ease forwards; }
+.fx-card {
+  text-align: center; background: var(--card); border: 2px solid var(--gold); border-radius: 28px; padding: 26px 40px 22px;
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--gold) 35%, transparent); animation: card 3.4s cubic-bezier(.2, 1.4, .4, 1) forwards;
+}
+.fx-card img { width: 110px; height: 110px; margin: -70px auto 6px; display: block; animation: bob 2s ease-in-out infinite; }
+.fx-kicker { margin: 0; font-size: 13px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.fx-name { margin: 4px 0 0; font: italic 600 34px/1.1 var(--font-display); color: var(--accent); }
+@keyframes card { 0% { transform: scale(.5) translateY(30px); opacity: 0; } 15% { transform: scale(1.05); opacity: 1; } 22%, 85% { transform: scale(1); opacity: 1; } 100% { transform: scale(.9); opacity: 0; } }
+
+/* MSN nudge: the window shakes. */
+body.shake main, body.shake .top, body.shake .chat { animation: shake .6s cubic-bezier(.36, .07, .19, .97); }
+@keyframes shake {
+  10%, 90% { transform: translate(-2px, 1px); } 20%, 80% { transform: translate(5px, -2px); }
+  30%, 50%, 70% { transform: translate(-9px, 3px); } 40%, 60% { transform: translate(9px, -3px); }
+}
+
+/* Chat bubbles. */
+.chat-log li.chat-msg { max-width: 85%; padding: 6px 10px 8px; border-radius: 14px; background: var(--soft); border: 1px solid var(--line); }
+.chat-log li.chat-msg.mine { margin-left: auto; background: color-mix(in srgb, var(--accent) 16%, var(--card)); border-color: color-mix(in srgb, var(--accent) 35%, transparent); border-bottom-right-radius: 4px; }
+.chat-log li.chat-msg.theirs { border-bottom-left-radius: 4px; }
+.chat-log li { animation: msg .3s ease; }
+.chat-nudge { text-align: center; }
+@keyframes msg { 0% { opacity: 0; transform: translateY(6px); } 100% { opacity: 1; transform: none; } }
+.chat-head { transition: filter .2s ease; }
+.chat-badge { animation: glow 1.6s ease-in-out infinite; }
+
+/* Nudge card and buttons get a little life. */
+.nudge { animation: arrive .5s cubic-bezier(.2, 1.3, .4, 1); }
+button:active { transform: scale(.96); }
+h2 { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.force-motion) *, :root:not(.force-motion) *::before, :root:not(.force-motion) *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  :root:not(.force-motion) section.arrive, :root:not(.force-motion) .pair article.flip { animation: none !important; }
+}
