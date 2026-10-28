@@ -182,6 +182,12 @@ Level 3: close (31 to 40)
   quick replies: Coming!, Give me 5 more minutes, Study you!, Pop a question now (brings the next question early for
   both), Dismiss. The reply shows on the sender's screen for 15 s. One nudge per 30 s. Tested as two players.
 
+- v10 (2026-10-28): MSN-style chat (his idea). Docked window bottom right, "Chat with Dana", "Dana says:" lines with
+  times, "Dana is typing...", 8 emoji buttons, a two-note blip on new messages, unread badge and tab title
+  "💬 (N)" while closed, notification when the tab is hidden, screen reader reads each new message, Escape closes.
+  Nudges show as "💌 Dana sent a nudge!". Messages are saved with the game and synced like answers, so a message
+  sent while the partner is away arrives when they come back. Last 500 kept. Tested as two players.
+
 ## Where it lives
 
 Live link (send this to her): https://dottti.github.io/study-break/

@@ -9,8 +9,8 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9">
-  <script type="module" src="app.js?v=9"></script>
+  <link rel="stylesheet" href="style.css?v=10">
+  <script type="module" src="app.js?v=10"></script>
 </head>
 <body>
   <div id="hearts" class="hearts" aria-hidden="true"></div>
@@ -21,6 +21,22 @@
     <button id="compact" class="ghost" type="button" aria-pressed="false">Compact view</button>
   </header>
   <main id="main" tabindex="-1"></main>
+  <aside id="chat" class="chat" aria-label="Chat" hidden>
+    <button id="chatToggle" class="chat-head" type="button" aria-expanded="false" aria-controls="chatBody">
+      <span aria-hidden="true">💬</span> <span id="chatTitle">Chat</span> <span id="chatBadge" class="chat-badge" hidden></span>
+    </button>
+    <div id="chatBody" class="chat-body" hidden>
+      <p id="chatStatus" class="chat-status"></p>
+      <ol id="chatLog" class="chat-log" aria-label="Messages"></ol>
+      <p id="chatTyping" class="chat-typing" aria-hidden="true"></p>
+      <div id="chatEmojis" class="chat-emojis"></div>
+      <form id="chatForm" class="chat-form">
+        <label for="chatInput" class="sr-only">Message</label>
+        <input id="chatInput" maxlength="500" autocomplete="off" placeholder="Type a message">
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  </aside>
   <div id="announce" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
 </body>
 </html>

@@ -201,3 +201,27 @@ button.react { padding: 8px 12px; margin-right: 6px; }
 }
 .nudge h3 { margin: 0 0 8px; }
 .nudge button { margin: 4px 6px 4px 0; }
+
+/* MSN-style chat window, docked bottom right. */
+.chat { position: fixed; right: 16px; bottom: 0; width: 320px; max-width: calc(100vw - 32px); z-index: 20;
+  background: var(--card); border: 2px solid var(--accent2); border-bottom: 0; border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 24px color-mix(in srgb, var(--accent) 20%, transparent); }
+.chat-head { width: 100%; text-align: left; border-radius: 14px 14px 0 0; display: flex; gap: 6px; align-items: center; }
+.chat-badge { margin-left: auto; background: var(--gold); color: var(--gold-ink); border-radius: 999px; padding: 1px 8px; font-size: 13px; }
+.chat-body { padding: 8px 12px 12px; }
+.chat-status { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+.chat-log { list-style: none; margin: 0; padding: 0 2px; height: 240px; overflow-y: auto; }
+.chat-log li { margin: 0 0 10px; font-size: 15px; line-height: 1.35; }
+.chat-who { font-weight: 900; color: var(--muted); font-size: 13px; }
+.chat-msg.mine .chat-who { color: var(--accent); }
+.chat-time { font-size: 11px; color: var(--muted); }
+.chat-text { white-space: pre-wrap; word-break: break-word; }
+.chat-nudge { font-style: italic; color: var(--accent); font-weight: 700; }
+.chat-empty { color: var(--muted); font-style: italic; }
+.chat-typing { min-height: 1.2em; margin: 0; font-size: 13px; font-style: italic; color: var(--muted); }
+.chat-emojis { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0; }
+.chat-emojis button { padding: 2px 6px; font-size: 18px; min-height: 0; }
+.chat-form { display: flex; gap: 6px; }
+.chat-form input { flex: 1; min-width: 0; margin: 0; }
+.chat-form button { margin: 0; }
+main { padding-bottom: 80px; }

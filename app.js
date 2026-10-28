@@ -1,8 +1,8 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=9';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=9';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=9';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=10';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=10';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=10';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
@@ -38,10 +38,12 @@ function blank() {
     judged: {},    // judged[q][who] = true/false: was who's guess right (marked by the other player)
     reactions: {}, // reactions[q][who] = reaction id that who gave to the other's answer
     rapid: {},     // rapid[q][who] = [0|1, 0|1, 0|1]
+    chat: [],      // { id, who, text, at } or { id, who, nudge: true, at }
   };
 }
 let S = load() || blank();
 for (const k of ['chars', 'reactions', 'rapid']) S[k] ||= k === 'chars' ? { a: '', b: '' } : {};
+S.chat ||= [];
 if (!('q' in S.shared)) S.shared = { v: S.shared.v + 1, phase: 'idle', q: null, popAt: null };
 function load() {
   try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; }
@@ -188,7 +190,7 @@ function send(msg) {
   if (conn && sock && sock.readyState === 1) sock.send(JSON.stringify(packVoice({ ...msg, from: S.me })));
 }
 async function sendFull() {
-  send({ t: 'full', shared: S.shared, answers: S.answers, judged: S.judged, reactions: S.reactions, rapid: S.rapid, voices: await vKeys() });
+  send({ t: 'full', shared: S.shared, answers: S.answers, judged: S.judged, reactions: S.reactions, rapid: S.rapid, chat: S.chat, voices: await vKeys() });
 }
 function mergeMap(mine, theirs, onNew) {
   for (const [q, byWho] of Object.entries(theirs || {}))
@@ -211,6 +213,7 @@ async function handle(d) {
     mergeMap(S.judged, d.judged);
     mergeMap(S.reactions, d.reactions);
     mergeMap(S.rapid, d.rapid);
+    mergeChat(d.chat);
     const theirs = new Set(d.voices || []);
     for (const k of await vKeys()) {
       if (!theirs.has(k)) { const v = await vGet(k); send({ t: 'voice', key: k, mime: v.mime, buf: v.buf }); }
@@ -238,6 +241,10 @@ async function handle(d) {
     S.reactions[d.q][from] = d.r;
     const r = reactionById(d.r);
     if (r) { announce(`${partnerName()} reacted to your answer: ${r.name}.`); bump(from); }
+  } else if (d.t === 'chat') {
+    gotChat(d.m);
+  } else if (d.t === 'typing') {
+    gotTyping();
   } else if (d.t === 'nudge') {
     gotNudge();
   } else if (d.t === 'nudgeReply') {
@@ -341,7 +348,8 @@ function askNotify() {
 function setTabTitle() {
   const sh = S.shared;
   const waiting = sh.phase === 'question' && !S.answers[sh.q]?.[S.me];
-  document.title = nudgeIn ? '💌 Nudge! Study Break' : waiting ? '💕 Pop! Study Break' : 'Study Break';
+  document.title = nudgeIn ? '💌 Nudge! Study Break' : waiting ? '💕 Pop! Study Break'
+    : chatUnread ? `💬 (${chatUnread}) Study Break` : 'Study Break';
 }
 function chime(up) {
   if (!soundOn) return;
@@ -447,6 +455,7 @@ function sendNudge() {
   nudgeSentAt = Date.now();
   nudgeBack = '';
   send({ t: 'nudge' });
+  addChat({ nudge: true });
   bump(S.me);
   announce(`Nudge sent. ${partnerName()} knows you are bored.`);
   setTimeout(() => render(true), NUDGE_REST_MS);
@@ -505,6 +514,141 @@ function nudgeBtnHtml() {
     ${nudgeResting()
       ? `<button type="button" class="ghost" disabled>Nudge sent 💌</button>`
       : `<button id="nudge" type="button" class="ghost">I'm bored, talk to me 💌</button>`}`;
+}
+
+// ---------- chat ----------
+
+// A little MSN-style chat between the two players. Messages are kept with the game on both laptops and synced like
+// answers, so a message sent while the partner is away arrives when they are back.
+const CHAT_MAX = 500;      // messages kept
+const CHAT_EMOJIS = ['😊', '😂', '😘', '🥰', '😴', '📚', '☕', '💕'];
+let chatOpen = false;
+try { chatOpen = localStorage.getItem(KEY + ':chat') === 'open'; } catch {}
+let chatUnread = 0;
+let partnerTypingUntil = 0;
+let typingSentAt = 0;
+let chatKey = '';
+
+const chatId = () => `${S.me}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+function addChat(extra) {
+  const m = { id: chatId(), who: S.me, at: Date.now(), ...extra };
+  S.chat.push(m);
+  if (S.chat.length > CHAT_MAX) S.chat.splice(0, S.chat.length - CHAT_MAX);
+  send({ t: 'chat', m });
+  save();
+  renderChat(true);
+}
+function sendChat(text) {
+  text = text.trim().slice(0, 500);
+  if (!text) return;
+  addChat({ text });
+  typingSentAt = 0;
+}
+function gotChat(m) {
+  if (!m || !m.id || S.chat.some((x) => x.id === m.id)) return;
+  S.chat.push(m);
+  S.chat.sort((x, y) => x.at - y.at);
+  if (S.chat.length > CHAT_MAX) S.chat.splice(0, S.chat.length - CHAT_MAX);
+  partnerTypingUntil = 0;
+  if (m.nudge) return renderChat(true); // the nudge itself has its own sound and announcement
+  if (!chatOpen || document.hidden) chatUnread++;
+  blip();
+  if (document.hidden) notify(`${partnerName()} says:`, m.text);
+  announce(`${partnerName()} says: ${m.text}`);
+  renderChat(true);
+}
+function mergeChat(list) {
+  let added = 0;
+  for (const m of list || []) {
+    if (m && m.id && !S.chat.some((x) => x.id === m.id)) { S.chat.push(m); if (m.who !== S.me && !m.nudge) added++; }
+  }
+  if (!added) return;
+  S.chat.sort((x, y) => x.at - y.at);
+  if (!chatOpen) chatUnread += added;
+  announce(`${added} new chat message${added > 1 ? 's' : ''} from ${partnerName()}.`);
+  renderChat(true);
+}
+function gotTyping() {
+  partnerTypingUntil = Date.now() + 4000;
+  renderChat(true);
+  setTimeout(() => renderChat(), 4100);
+}
+function blip() {
+  if (!soundOn) return;
+  try {
+    audioCtx ||= new AudioContext();
+    [880, 1175].forEach((f, i) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      const t0 = audioCtx.currentTime + i * 0.09;
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.15, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0);
+      o.stop(t0 + 0.2);
+    });
+  } catch {}
+}
+const chatTime = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+function chatLine(m) {
+  const name = esc(nameOf(m.who));
+  if (m.nudge) return `<li class="chat-nudge">💌 ${name} sent a nudge! <span class="chat-time">${chatTime(m.at)}</span></li>`;
+  return `<li class="chat-msg ${m.who === S.me ? 'mine' : 'theirs'}"><span class="chat-who">${faceOf(m.who)} ${name} says:</span>
+    <span class="chat-time">${chatTime(m.at)}</span><br><span class="chat-text">${esc(m.text)}</span></li>`;
+}
+function renderChat(force) {
+  const box = $('#chat');
+  if (!S.room) { box.hidden = true; return; }
+  box.hidden = false;
+  if (chatOpen && !document.hidden) chatUnread = 0;
+  const typing = Date.now() < partnerTypingUntil;
+  const key = [S.chat.length, S.chat.at(-1)?.id, chatOpen, chatUnread, typing, S.names.a, S.names.b, S.chars.a, S.chars.b, together()].join('|');
+  if (!force && key === chatKey) return;
+  chatKey = key;
+  $('#chatTitle').textContent = `Chat with ${partnerName()}`;
+  $('#chatToggle').setAttribute('aria-expanded', String(chatOpen));
+  $('#chatBadge').hidden = !chatUnread;
+  $('#chatBadge').textContent = chatUnread ? `${chatUnread} new` : '';
+  $('#chatBody').hidden = !chatOpen;
+  $('#chatStatus').textContent = together() ? `${faceOf(other(S.me))} online` : 'away, gets it later';
+  const log = $('#chatLog');
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.innerHTML = S.chat.length ? S.chat.map(chatLine).join('') : `<li class="chat-empty">No messages yet. Say hi!</li>`;
+  if (atBottom || force) log.scrollTop = log.scrollHeight;
+  $('#chatTyping').textContent = typing ? `${partnerName()} is typing...` : '';
+  setTabTitle();
+}
+function setChatOpen(onOff) {
+  chatOpen = onOff;
+  try { localStorage.setItem(KEY + ':chat', onOff ? 'open' : ''); } catch {}
+  renderChat(true);
+  if (onOff) $('#chatInput').focus();
+}
+// Wired once at boot (the chat box lives outside #main, so game redraws never touch what is being typed).
+function wireChat() {
+  $('#chatToggle').onclick = () => setChatOpen(!chatOpen);
+  $('#chatForm').onsubmit = (e) => {
+    e.preventDefault();
+    const input = $('#chatInput');
+    sendChat(input.value);
+    input.value = '';
+    input.focus();
+  };
+  $('#chatInput').oninput = () => {
+    if (Date.now() - typingSentAt > 2500) { typingSentAt = Date.now(); send({ t: 'typing' }); }
+  };
+  $('#chatInput').onkeydown = (e) => { if (e.key === 'Escape') { setChatOpen(false); $('#chatToggle').focus(); } };
+  $('#chatEmojis').innerHTML = CHAT_EMOJIS.map((em) => `<button type="button" class="ghost" data-emoji="${em}" aria-label="Add ${em}">${em}</button>`).join('');
+  $('#chatEmojis').onclick = (e) => {
+    const b = e.target.closest('[data-emoji]');
+    if (!b) return;
+    const input = $('#chatInput');
+    input.value += b.dataset.emoji;
+    input.focus();
+  };
+  document.addEventListener('visibilitychange', () => renderChat(true));
 }
 
 // ---------- answering ----------
@@ -638,6 +782,7 @@ function checkTitle() {
 
 function render(force) {
   renderConn();
+  renderChat();
   setTabTitle();
   if (S.room) checkTitle();
   const sh = S.shared;
@@ -1062,6 +1207,7 @@ setSound(soundOn);
 // ---------- boot ----------
 
 hearts(false);
+wireChat();
 if (joinPrompt) focusHeading = true; // the invite question gets screen-reader focus first
 render(true);
 if (S.room && !joinPrompt) startSync(); // wait for the answer before taking this seat (it would bump the other window)
