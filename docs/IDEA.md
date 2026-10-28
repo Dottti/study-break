@@ -188,6 +188,9 @@ Level 3: close (31 to 40)
   Nudges show as "💌 Dana sent a nudge!". Messages are saved with the game and synced like answers, so a message
   sent while the partner is away arrives when they come back. Last 500 kept. Tested as two players.
 
+- v11 (2026-10-28): her default name. Opening an invite link fills in "Dandoon (The-Don)" (she can change it).
+  Creating a game leaves the name empty.
+
 ## Where it lives
 
 Live link (send this to her): https://dottti.github.io/study-break/

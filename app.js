@@ -1,14 +1,15 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync goes through a small relay (relay/ on Railway). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=10';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=10';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=10';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=11';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=11';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=11';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
 const UNIT = params.has('fast') ? 1000 : 60000; // ?fast makes "minutes" seconds (testing)
 const KEY = 'studybreak' + PROFILE;
 const JOIN_CODE = (params.get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); // invite link: ?join=CODE
+const INVITED_NAME = 'Dandoon (The-Don)'; // name filled in for whoever opens an invite link (Dana); she can change it
 const TOTAL = QUESTIONS.length;
 const other = (w) => (w === 'a' ? 'b' : 'a');
 
@@ -836,7 +837,7 @@ function setupView() {
       <div class="chars">${chars}</div>
     </fieldset>
     <label for="name">Your name</label>
-    <input id="name" autocomplete="given-name" value="${esc(S.names.a || '')}">
+    <input id="name" autocomplete="nickname" value="${esc(S.names.a || (JOIN_CODE ? INVITED_NAME : ''))}">
     <h3>New game</h3>
     <button id="create" type="button">Start a new game</button>
     <h3>Join a game</h3>
