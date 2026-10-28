@@ -1,7 +1,7 @@
 # 40 Questions: a study-break game for two
 
-Status: idea, restarted 2026-10-27. The first chat about it was lost (not in any Code session on this Mac).
-Everything below is a fresh restart. Change anything that does not match what you two meant.
+Status: live and playable (v6, 2026-10-28). The sections down to "Decisions" are the first draft from 2026-10-27
+(timers, phones). They are kept for history; the decisions and version log below are what the game does now.
 
 ## The idea in one line
 
@@ -144,6 +144,24 @@ Level 3: close (31 to 40)
 - Checked light desktop and dark phone width: no sideways scroll, no console errors. Version links now v=4.
 
 - Stop studying button removed (his ask). Start studying once; it runs until Leave game. Links at v=5.
+
+## v6 (2026-10-28): connection and polish
+
+- Invite link: the waiting screen shows `?join=CODE` with a Copy invite link button; opening it fills in the code.
+- Questions only pop while both are connected. A question due while one is away comes 1 minute after they return.
+  Closing the tab sends a goodbye (instant pause); a closed laptop is noticed by a 5 s ping within 75 s.
+- After 45 s without a connection, a tip says strict wifi can block it and to try a phone hotspot.
+- Found: PeerJS's own relay servers (eu-0/us-0.turn.peerjs.com) no longer resolve and Open Relay is shut down, so
+  there is no relay today. Direct links work on most home wifi; campus or office wifi may block them. Fix when needed:
+  a free TURN app (for example Metered.ca, needs his signup), credentials go in `TURN` in app.js.
+- Team titles: 9 steps up to Soulmates at 950 points together (old ladder topped out around question 12). A new title
+  gets hearts and an announcement.
+- Rapid fire: 24 pairs, so the 8 rounds never repeat a pick.
+- Both players are asked for notifications (on create and join, not only Start). Sound wakes on the first click or key,
+  so the chime works after a reload. The tab title shows "💕 Pop!" while a question waits for your answer.
+- Saved memory book uses the plum/lavender palette (it had red-pink).
+- Tested as two players in fast mode: invite link join, pop-up, tab title, answer and reveal, pause on partner leave,
+  long-wait tip, pop after the partner returns. No console errors.
 
 ## Where it lives
 

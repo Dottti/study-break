@@ -34,5 +34,5 @@ Read `docs/IDEA.md` first. It has every decision, the version log, and the open 
 
 ## Not done yet
 
-Real two-laptop test across the internet, real microphone test, invite link with the code pre-filled, question packs,
-the $1.99 version. See `docs/IDEA.md`.
+Real two-laptop test across two networks, a TURN relay (PeerJS's own is dead; slot is `TURN` in app.js), real
+microphone test, question packs, the $1.99 version. See `docs/IDEA.md`.

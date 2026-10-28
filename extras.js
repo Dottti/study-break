@@ -32,6 +32,10 @@ export const RAPID_PAIRS = [
   ['Spicy', 'Mild'],
   ['Hugs', 'Kisses'],
   ['Plan it', 'Wing it'],
+  ['Road trip', 'Flight'],
+  ['Chocolate', 'Vanilla'],
+  ['Board games', 'Video games'],
+  ['Sneakers', 'Sandals'],
 ];
 export const isRapidQ = (q) => (q + 1) % RAPID_EVERY === 0;
 // Same three pairs on both laptops for a given question.

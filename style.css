@@ -192,3 +192,6 @@ button.react { padding: 8px 12px; margin-right: 6px; }
 .rapid h3 { margin-top: 0; }
 .pick { border: 0; padding: 0; margin: 6px 0; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .pick legend { float: left; font-weight: 900; margin-right: 6px; color: var(--muted); }
+.invite { background: var(--soft); border: 1px solid var(--line); border-radius: 16px; padding: 12px 16px; margin: 12px 0; }
+.invite p { margin: 6px 0; }
+.code.invite-link { font-size: 15px; letter-spacing: 0; word-break: break-all; user-select: all; }

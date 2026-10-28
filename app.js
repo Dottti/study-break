@@ -1,13 +1,14 @@
 // Study Break: two people study on their own laptops. Questions pop up at random while they study.
 // Sync is peer-to-peer (PeerJS). Each laptop keeps its own full copy of the game.
-import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=5';
-import { CHARACTERS, charById, titleFor } from './characters.js?v=5';
-import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=5';
+import { QUESTIONS, LEVELS, levelOf } from './questions.js?v=6';
+import { CHARACTERS, charById, titleFor } from './characters.js?v=6';
+import { REACTIONS, reactionById, isRapidQ, rapidPairs, tauntFor } from './extras.js?v=6';
 
 const params = new URLSearchParams(location.search);
 const PROFILE = params.get('p') || '';          // ?p=2 gives a second player in the same browser (testing)
 const UNIT = params.has('fast') ? 1000 : 60000; // ?fast makes "minutes" seconds (testing)
 const KEY = 'studybreak' + PROFILE;
+const JOIN_CODE = (params.get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5); // invite link: ?join=CODE
 const TOTAL = QUESTIONS.length;
 const other = (w) => (w === 'a' ? 'b' : 'a');
 
@@ -126,11 +127,19 @@ const vKey = (q, who) => `${q}-${who}`;
 
 let peer = null;
 let conn = null;
+let connectedAt = 0;  // when the partner last connected
+let waitingSince = 0; // when this laptop started waiting for the partner
 const peerId = (who) => `studybreak-v1-${S.room}-${who}`;
+
+// PeerJS's own relay servers (turn.peerjs.com) no longer resolve, so strict networks (campus, office wifi) can block
+// the direct link. Put a TURN relay here (for example a free Metered.ca app) and those networks work too.
+const TURN = [];
+const ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, ...TURN];
 
 function startPeer() {
   if (peer || !S.room) return;
-  peer = new Peer(peerId(S.me), { debug: 0 });
+  waitingSince = Date.now();
+  peer = new Peer(peerId(S.me), { debug: 0, config: { iceServers: ICE } });
   peer.on('open', tryConnect);
   peer.on('connection', setupConn);
   peer.on('disconnected', () => setTimeout(() => peer && !peer.destroyed && peer.reconnect(), 3000));
@@ -142,7 +151,18 @@ function startPeer() {
       console.warn('peer error', e.type);
     }
   });
-  setInterval(tryConnect, 5000);
+  setInterval(heartbeat, 5000);
+}
+// A closed laptop or tab can leave the connection looking open for a long time, so both sides ping every 5 seconds
+// and drop a connection that has gone quiet. Hidden tabs can be throttled to about one timer a minute, hence 75 s.
+const STALE_MS = 75000;
+let lastSeen = 0;
+// Closing or reloading the tab says goodbye right away, so the partner's questions pause at once.
+window.addEventListener('pagehide', () => send({ t: 'bye' }));
+function heartbeat() {
+  if (conn && conn.open && Date.now() - lastSeen > STALE_MS) conn.close();
+  send({ t: 'ping' });
+  tryConnect();
 }
 function tryConnect() {
   if (peer && peer.open && !(conn && conn.open)) setupConn(peer.connect(peerId(other(S.me)), { reliable: true }));
@@ -151,13 +171,14 @@ function setupConn(c) {
   c.on('open', () => {
     const was = conn && conn.open;
     conn = c;
+    lastSeen = Date.now();
     send({ t: 'hello', name: S.names[S.me], char: S.chars[S.me] });
     sendFull();
-    if (!was) { announce(`${partnerName()} is connected.`); renderConn(); }
+    if (!was) { connectedAt = Date.now(); announce(`${partnerName()} is connected.`); renderConn(); render(true); }
   });
   c.on('data', handle);
   c.on('close', () => {
-    if (conn === c) { conn = null; announce(`${partnerName()} left.`); renderConn(); }
+    if (conn === c) { conn = null; waitingSince = Date.now(); announce(`${partnerName()} left. Questions wait until you are both back.`); renderConn(); render(true); }
   });
 }
 function send(msg) {
@@ -177,6 +198,9 @@ function mergeMap(mine, theirs, onNew) {
 async function handle(d) {
   const from = d.from;
   if (from !== other(S.me)) return;
+  lastSeen = Date.now();
+  if (d.t === 'ping') return;
+  if (d.t === 'bye') { if (conn) conn.close(); return; }
   if (d.t === 'hello') {
     if (d.name) S.names[from] = d.name;
     if (d.char) S.chars[from] = d.char;
@@ -253,7 +277,8 @@ function tick() {
     resumeStudy();
     return;
   }
-  if (sh.phase === 'study' && sh.popAt && Date.now() >= sh.popAt) {
+  // Questions only pop while both are here. If one was due while the partner was away, it comes a minute after they return.
+  if (sh.phase === 'study' && sh.popAt && conn && conn.open && Date.now() >= Math.max(sh.popAt, connectedAt + UNIT)) {
     const q = answeredCount();
     if (q >= TOTAL) { setShared({ phase: 'done', q: null, popAt: null }); return; }
     setShared({ phase: 'question', q, popAt: null, revealAt: null });
@@ -272,6 +297,7 @@ function resumeStudy() {
 
 function onPhase() {
   const sh = S.shared;
+  setTabTitle();
   if (sh.phase === 'question') {
     const qq = QUESTIONS[sh.q];
     if (draftQ !== sh.q) { draft = { text: '', guess: '', voice: null }; rapidDraft = [null, null, null]; draftQ = sh.q; }
@@ -298,6 +324,21 @@ function onPhase() {
 let audioCtx = null;
 let soundOn = true;
 try { soundOn = localStorage.getItem('studybreak:sound') !== 'off'; } catch {}
+// Browsers keep sound muted until the page is clicked or typed in, so wake the audio on the first touch.
+function unlockAudio() {
+  try { audioCtx ||= new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch {}
+}
+document.addEventListener('pointerdown', unlockAudio);
+document.addEventListener('keydown', unlockAudio);
+function askNotify() {
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
+}
+// The tab shows "Pop!" while a question waits for my answer, so it stands out from another tab.
+function setTabTitle() {
+  const sh = S.shared;
+  const waiting = sh.phase === 'question' && !S.answers[sh.q]?.[S.me];
+  document.title = waiting ? '💕 Pop! Study Break' : 'Study Break';
+}
 function chime(up) {
   if (!soundOn) return;
   try {
@@ -493,12 +534,29 @@ function renderConn() {
   if (!S.room) { el.textContent = ''; return; }
   el.textContent = connNote || (conn && conn.open ? `${faceOf(other(S.me))} ${partnerName()} is here` : `Waiting for ${partnerName()}. Game code ${S.room}`);
 }
+const together = () => !!(conn && conn.open);
+const longWait = () => !together() && waitingSince && Date.now() - waitingSince > 45000;
+const inviteLink = () => `${location.origin}${location.pathname}?join=${S.room}`;
+
+// Team title: announce and celebrate each time a new one is earned.
+let shownTitle = null;
+function checkTitle() {
+  const t = teamTitle();
+  if (shownTitle !== null && t !== shownTitle) {
+    hearts(true);
+    setTimeout(() => announce(`New title together: ${t}.`), 2500);
+  }
+  shownTitle = t;
+}
 
 function render(force) {
   renderConn();
+  setTabTitle();
+  if (S.room) checkTitle();
   const sh = S.shared;
   const key = [view, S.room, sh.v, JSON.stringify(S.answers[sh.q] || {}), JSON.stringify(S.judged), JSON.stringify(S.reactions[sh.q] || {}),
-    JSON.stringify(S.rapid[sh.q] || {}), !!recorder, !!draft.voice, S.names.a, S.names.b, S.chars.a, S.chars.b, score('a'), score('b'), tauntText].join('|');
+    JSON.stringify(S.rapid[sh.q] || {}), !!recorder, !!draft.voice, S.names.a, S.names.b, S.chars.a, S.chars.b, score('a'), score('b'), tauntText,
+    together(), longWait()].join('|');
   if (!force && key === lastKey) return;
   lastKey = key;
   // Keep keyboard / screen-reader focus where it was when the page redraws under the user.
@@ -534,8 +592,10 @@ function setupView() {
       <span class="cute">Cute: ${c.cute}/10</span>
       <span class="ln">${esc(c.line)}</span>
     </label>`).join('');
+  const invited = JOIN_CODE ? `<p class="done">You are invited to game ${esc(JOIN_CODE)}. Pick a character, type your name, then press Join game.</p>` : '';
   return `<section>
     <h2>Choose your character</h2>
+    ${invited}
     <p class="meta">From cutest to... well. Pick wisely, your partner will see it.</p>
     <fieldset style="border:0;padding:0;margin:0"><legend class="sr-only">Your character</legend>
       <div class="chars">${chars}</div>
@@ -546,7 +606,7 @@ function setupView() {
     <button id="create" type="button">Start a new game</button>
     <h3>Join a game</h3>
     <label for="code">Game code</label>
-    <input id="code" maxlength="5" autocapitalize="characters" autocomplete="off">
+    <input id="code" maxlength="5" autocapitalize="characters" autocomplete="off" value="${esc(JOIN_CODE)}">
     <button id="join" type="button">Join game</button>
   </section>
   <section class="extra">
@@ -579,21 +639,38 @@ function statusLine() {
   return `<p class="meta">Question ${n} of ${TOTAL}. Level: ${LEVELS[levelOf(n - 1)]}.</p>`;
 }
 
+// Shown while the partner is not connected: the invite link, and a tip if it takes long.
+function waitingHtml() {
+  if (together()) return '';
+  const tip = longWait()
+    ? `<p class="meta">Still not connected. Check that ${esc(partnerName())} opened the link or typed code ${esc(S.room)}.
+       Campus, school and office wifi can block the link between laptops: if it stays stuck, one of you joins from a phone hotspot.</p>`
+    : '';
+  return `<div class="invite">
+    <p>Waiting for ${esc(partnerName())}. Send this invite link:</p>
+    <p class="code invite-link">${esc(inviteLink())}</p>
+    <button id="copyInvite" type="button">Copy invite link</button>
+    ${tip}
+  </div>`;
+}
+
 function gameView() {
   const sh = S.shared;
   let body = '';
   if (sh.phase === 'idle') {
     body = `<section>
       <h2>Ready when you are</h2>
-      ${scoreBar()}${statusLine()}
+      ${scoreBar()}${statusLine()}${waitingHtml()}
       <button id="start" type="button">Start studying</button>
-      <p class="meta">Questions pop up on both laptops at random, every ${GAP_MIN} to ${GAP_MAX} minutes. Either of you can start.</p>
+      <p class="meta">Questions pop up on both laptops at random, every ${GAP_MIN} to ${GAP_MAX} minutes, while you are both here. Either of you can start.</p>
     </section>`;
   } else if (sh.phase === 'study') {
     body = `<section>
       <h2>Studying</h2>
       ${scoreBar()}${statusLine()}
-      <p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>
+      ${together()
+        ? `<p class="big">Eyes on the books. Question ${answeredCount() + 1} will pop up when you least expect it.</p>`
+        : `<p class="big">Questions are paused until ${esc(partnerName())} is back.</p>${waitingHtml()}`}
     </section>`;
   } else if (sh.phase === 'question') {
     body = questionView();
@@ -749,7 +826,8 @@ function wire() {
     focusHeading = true;
     hearts(true);
     render(true);
-    announce(`Game created as ${charById(ch).name}. Your game code is ${S.room.split('').join(' ')}. Send it to your partner.`);
+    askNotify();
+    announce(`Game created as ${charById(ch).name}. Your game code is ${S.room.split('').join(' ')}. Copy the invite link and send it to your partner.`);
   });
   on('join', () => {
     const name = $('#name').value.trim();
@@ -763,14 +841,20 @@ function wire() {
     S.chars.b = ch;
     S.room = code;
     save();
+    askNotify();
+    if (JOIN_CODE) history.replaceState(null, '', location.pathname + location.search.replace(/[?&]join=[^&]*/, '').replace(/^&/, '?'));
     startPeer();
     focusHeading = true;
     hearts(true);
     render(true);
     announce(`Joined as ${charById(ch).name}. Connecting to your partner.`);
   });
+  on('copyInvite', async () => {
+    try { await navigator.clipboard.writeText(inviteLink()); announce('Invite link copied. Paste it to your partner.'); }
+    catch { announce(`Copy failed. The link is ${inviteLink()}`); }
+  });
   on('start', () => {
-    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
+    askNotify();
     setShared({ phase: 'study', q: null, popAt: Date.now() + randomGap(), revealAt: null });
   });
   on('resume', resumeStudy);
@@ -824,7 +908,7 @@ async function exportBook() {
     rows.push(`<section><h2>${q + 1}. ${esc(QUESTIONS[q].text)}</h2>${parts.join('')}</section>`);
   }
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Study Break memory book</title>
-    <style>body{font:17px/1.5 system-ui,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;color:#4a1c2b;background:#fff0f4}section{border-top:1px solid #ffc7d8;padding:8px 0}h1{color:#e63968}</style>
+    <style>body{font:17px/1.5 system-ui,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;color:#3d2a3a;background:#fbf5f8}section{border-top:1px solid #ecd9ea;padding:8px 0}h1,h2{color:#a86bb5}</style>
     <h1>Study Break memory book 💕</h1><p>${faceOf('a')} ${esc(S.names.a)} and ${faceOf('b')} ${esc(S.names.b)}. ${n} questions. ${esc(teamTitle())}.</p>${rows.join('')}</html>`;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
@@ -859,4 +943,4 @@ setSound(soundOn);
 hearts(false);
 render(true);
 if (S.room) startPeer();
-setInterval(tick, 500);
+setInterval(() => { tick(); render(); }, 500);
